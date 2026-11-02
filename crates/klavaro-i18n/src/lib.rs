@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Idiomas de la interfaz.
 //!
-//! Por ahora contiene el catálogo de idiomas del Klavaro original y la regla para elegir el
-//! idioma a partir de las preferencias del sistema. Los textos traducidos (Fluent, `.ftl`)
-//! se agregan en la fase 2, cuando haya acceso a crates.io para `i18n-embed`.
+//! Contiene el catálogo de idiomas del Klavaro original, la regla para elegir el idioma a
+//! partir de las preferencias del sistema y el [`Translator`] con los textos en Fluent.
+
+mod catalog;
+mod translator;
+
+pub use translator::Translator;
 
 /// Código del idioma por defecto (inglés). El original lo llama `C`.
 pub const FALLBACK: &str = "C";

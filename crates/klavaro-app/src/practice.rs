@@ -14,6 +14,8 @@ use klavaro_core::goals::{CommentContext, Goals};
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 
 use crate::assets;
+use klavaro_i18n::Translator;
+
 use crate::exercise::{self, ExerciseSpec, comment_text, module_name};
 
 const GREEN: &str = "\x1b[32m";
@@ -59,18 +61,17 @@ pub(crate) fn run(opts: &PracticeOptions) -> io::Result<()> {
     // En la terminal, un ejercicio corto alcanza: sólo las dos primeras líneas.
     text = text.lines().take(2).flat_map(|l| [l, "\n"]).collect();
 
+    let prefs = klavaro_i18n::system_preferences();
+    let tr = Translator::new(klavaro_i18n::resolve(prefs.iter().map(String::as_str)));
     let mut out = io::stdout().lock();
     writeln!(
         out,
         "{BOLD}klavaro-rs · {} · {} · {}{RESET}",
-        module_name(opts.module),
+        module_name(&tr, opts.module),
         opts.language,
         opts.keyboard
     )?;
-    writeln!(
-        out,
-        "{DIM}Copiá cada línea y presioná Enter al final de cada una.{RESET}\n"
-    )?;
+    writeln!(out, "{DIM}{}{RESET}\n", tr.tr("practice-instructions"))?;
 
     // La terminal no permite corregir con Backspace tecla por tecla: Fluidez se evalúa como
     // Velocidad (sin corrección).
@@ -104,21 +105,29 @@ pub(crate) fn run(opts: &PracticeOptions) -> io::Result<()> {
         let check = goals.evaluate(eval_module, stats);
         let mark = |ok: bool| if ok { GREEN } else { RED };
         writeln!(out)?;
-        writeln!(out, "Tiempo:     {:.1} s", stats.elapsed.as_secs_f64())?;
+        let value = |key: &str, v: f64| tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
         writeln!(
             out,
-            "Precisión:  {}{:.1} %{RESET}",
-            mark(check.accuracy),
-            stats.accuracy
+            "{} {}",
+            tr.tr("stats-elapsed"),
+            value("stats-seconds", stats.elapsed.as_secs_f64())
         )?;
         writeln!(
             out,
-            "Velocidad:  {}{:.1} PPM{RESET}",
+            "{} {}{}{RESET}",
+            tr.tr("stats-accuracy"),
+            mark(check.accuracy),
+            value("stats-percent", stats.accuracy)
+        )?;
+        writeln!(
+            out,
+            "{} {}{}{RESET}",
+            tr.tr("stats-wpm"),
             mark(check.speed),
-            stats.wpm
+            value("stats-wpm-value", stats.wpm)
         )?;
         let comment = goals.comment(eval_module, stats, CommentContext::default());
-        writeln!(out, "\n{BOLD}{}{RESET}", comment_text(comment))?;
+        writeln!(out, "\n{BOLD}{}{RESET}", comment_text(&tr, comment))?;
     }
     Ok(())
 }

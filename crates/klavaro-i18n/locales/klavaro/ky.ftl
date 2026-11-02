@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Generado por tools/po2ftl.py desde po/ky.po de Klavaro 3.14. No editar a mano.
+
+module-intro = Киришүү
+module-basic = Негизги курс
+module-adaptability = Көнгүчтүк
+module-velocity = Ылдамдык
+module-fluidity = Жай-салмактуулук
+module-basic-tip = Баштапкы окуунун биринчи кадамдары
+module-adaptability-tip = Кокустук баскычтар менен көнүгүңүз
+module-velocity-tip = Кокустук сөздөр менен көнүгүңүз
+module-fluidity-tip = Толук тексттер менен көнүгүңүз
+app-motto = Эч качан унутпаңыз: бирөө сизди жакшы көрөт!
+menu-keyboard = Ариптакта:
+menu-language = Тили:
+menu-text-language-tip = 3 жана 4 модуль үчүн тил.
+menu-back = Менюга кайтуу
+menu-top10 = Төбөл 10
+menu-progress = Жетишкендик
+tutor-lesson = Сабак:
+tutor-paragraphs = Параграф:
+tutor-keys = Баскычтары:
+tutor-start = Сиз даяр болгондо терип баштаңыз.
+tutor-use-backspace = Каталарды оңдоо үчүн backspace'ти колдонуңуз.
+tutor-key-positions-learned = Клавишалардын орундары жатталгандай көрүнөт!
+stats-title = СТАТИСТИКА
+stats-elapsed = Коротулган убагы:
+stats-error-ratio = Катанын коэффициенти:
+stats-accuracy = Тактык:
+stats-goal = Максат:
+stats-cps = Секундасына символ:
+stats-wpm = Сөз саны (м.):
+stats-fluidity = Жай-салмактуулук:
+stats-comments = Комментарийлер:
+stats-score = Упай
+ranking-name = Аты
+ranking-chars = Символдор
+ranking-when = Качан
+ranking-local = Жергиликтүү упайлар
+ranking-empty = Бош рейтинг. Жай-салмактуулуктан көнүгүңүз.

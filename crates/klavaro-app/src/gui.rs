@@ -11,6 +11,7 @@ use iced::widget::{button, column, container, pick_list, rich_text, row, scrolla
 use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, Theme, event};
 
 use klavaro_core::Module;
+use klavaro_i18n::Translator;
 
 use crate::assets;
 use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, recorded_text};
@@ -25,6 +26,26 @@ pub(crate) fn run() -> iced::Result {
         .theme(App::theme)
         .window_size((960.0, 680.0))
         .run()
+}
+
+/// Idioma de la interfaz en la lista desplegable.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct UiLanguage {
+    code: &'static str,
+    name: &'static str,
+}
+
+impl std::fmt::Display for UiLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name)
+    }
+}
+
+fn ui_languages() -> Vec<UiLanguage> {
+    klavaro_i18n::LANGUAGES
+        .iter()
+        .map(|&(code, name)| UiLanguage { code, name })
+        .collect()
 }
 
 enum Screen {
@@ -46,12 +67,14 @@ struct App {
     /// Aviso al abrir (importación o problemas con los archivos).
     notice: Option<String>,
     profile: Profile,
+    tr: Translator,
     clock: Instant,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     Start(Module),
+    InterfaceSelected(UiLanguage),
     LanguageSelected(String),
     KeyboardSelected(String),
     Key(Input),
@@ -76,13 +99,16 @@ impl App {
                 .unwrap_or_default()
         };
         let system = klavaro_i18n::system_preferences();
-        let text_language = config.text_language.clone().unwrap_or_else(|| {
-            let prefs = config.language.iter().chain(&system).map(String::as_str);
-            klavaro_i18n::resolve(prefs).to_owned()
+        let ui = klavaro_i18n::resolve(config.language.iter().chain(&system).map(String::as_str));
+        let tr = Translator::new(ui);
+        let text_language = config
+            .text_language
+            .clone()
+            .unwrap_or_else(|| ui.to_owned());
+        let error = keyboards.is_empty().then(|| {
+            let dir = assets::dir().display().to_string();
+            tr.tr_args("error-no-data", &[("dir", &dir)])
         });
-        let error = keyboards
-            .is_empty()
-            .then(|| format!("No se encontraron datos en {}", assets::dir().display()));
         let mut app = Self {
             language: pick(&languages, &text_language, "es"),
             keyboard: pick(
@@ -96,7 +122,8 @@ impl App {
             dark: config.alt_colors,
             error,
             note: None,
-            notice: profile.notice.as_ref().map(notice_text),
+            notice: profile.notice.as_ref().map(|n| notice_text(&tr, n)),
+            tr,
             screen: Screen::Menu,
             clock: Instant::now(),
             profile,
@@ -141,7 +168,7 @@ impl App {
             .profile
             .record(t.spec(), &self.keyboard, outcome, &t.text(), &model)
         {
-            Ok(r) => self.note = recorded_text(r),
+            Ok(r) => self.note = recorded_text(&self.tr, r),
             Err(e) => self.error = Some(e.to_string()),
         }
     }
@@ -149,7 +176,9 @@ impl App {
     fn title(&self) -> String {
         match &self.screen {
             Screen::Menu => "klavaro-rs".to_owned(),
-            Screen::Tutor(t) => format!("klavaro-rs · {}", module_name(t.spec().module)),
+            Screen::Tutor(t) => {
+                format!("klavaro-rs · {}", module_name(&self.tr, t.spec().module))
+            }
         }
     }
 
@@ -166,6 +195,12 @@ impl App {
     fn update(&mut self, message: Message) -> Task<Message> {
         let result = match message {
             Message::Start(module) => self.start(module),
+            Message::InterfaceSelected(l) => {
+                self.tr = Translator::new(l.code);
+                self.profile.config.language = Some(l.code.to_owned());
+                self.persist();
+                Ok(())
+            }
             Message::LanguageSelected(l) => {
                 self.language = l;
                 self.persist();
@@ -296,15 +331,26 @@ impl App {
             .into()
     }
 
-    fn view_menu(&self) -> Element<'_, Message> {
+    fn view_menu<'a>(&'a self) -> Element<'a, Message> {
+        let tr = &self.tr;
         let modules = column(Module::ALL.iter().enumerate().map(|(i, &m)| {
-            button(text(format!("{} - {}", i + 1, module_name(m))).size(18))
-                .width(Length::Fixed(280.0))
-                .padding(10)
-                .on_press(Message::Start(m))
-                .into()
+            let tip = format!("{}-tip", crate::exercise::module_key(m));
+            button(
+                column![
+                    text(format!("{} - {}", i + 1, module_name(tr, m))).size(18),
+                    text(tr.tr(&tip)).size(12),
+                ]
+                .spacing(2),
+            )
+            .width(Length::Fixed(320.0))
+            .padding(10)
+            .on_press(Message::Start(m))
+            .into()
         }))
         .spacing(8);
+        let languages = ui_languages();
+        let current = languages.iter().find(|l| l.code == tr.code()).cloned();
+        let interface = pick_list(languages, current, Message::InterfaceSelected);
         let language = pick_list(
             self.languages.clone(),
             Some(self.language.clone()),
@@ -315,41 +361,45 @@ impl App {
             Some(self.keyboard.clone()),
             Message::KeyboardSelected,
         );
-        let colors = button(text(if self.dark {
-            "Colores claros"
+        let colors = button(text(tr.tr(if self.dark {
+            "menu-colors-light"
         } else {
-            "Colores oscuros"
-        }))
+            "menu-colors-dark"
+        })))
         .on_press(Message::ToggleTheme);
+        let labeled = |label: String, widget: Element<'a, Message>| {
+            row![text(label).width(Length::Fixed(110.0)), widget]
+                .spacing(8)
+                .align_y(Alignment::Center)
+        };
         column![
-            text("klavaro-rs").size(36),
-            text("Tutor de mecanografía").size(16),
+            text(tr.tr("app-name")).size(36),
+            text(tr.tr("app-tagline")).size(16),
             modules,
-            row![text("Idioma").width(Length::Fixed(80.0)), language]
-                .spacing(8)
-                .align_y(Alignment::Center),
-            row![text("Teclado").width(Length::Fixed(80.0)), keyboard]
-                .spacing(8)
-                .align_y(Alignment::Center),
+            labeled(tr.tr("menu-interface-language"), interface.into()),
+            labeled(tr.tr("menu-text-language"), language.into()),
+            text(tr.tr("menu-text-language-tip")).size(12),
+            labeled(tr.tr("menu-keyboard"), keyboard.into()),
             colors,
-            text("Atajos: 1–4 abren un módulo · Ctrl+A cambia los colores").size(13),
+            text(tr.tr("menu-shortcuts")).size(13),
         ]
         .spacing(16)
         .into()
     }
 
     fn view_tutor<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
+        let tr = &self.tr;
         let spec = tutor.spec();
         let mut header = row![
-            button(text("← Menú")).on_press(Message::Back),
+            button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
             text(format!(
                 "{} · {} · {}",
-                module_name(spec.module),
+                module_name(tr, spec.module),
                 spec.language,
                 self.keyboard
             ))
             .size(18),
-            button(text("Nuevo (Esc)")).on_press(Message::Restart),
+            button(text(tr.tr("tutor-new"))).on_press(Message::Restart),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -357,7 +407,7 @@ impl App {
             header = header.push(
                 row![
                     button(text("−")).on_press(Message::LessonDelta(-1)),
-                    text(format!("Lección {}", spec.lesson)),
+                    text(tr.tr_args("tutor-lesson-n", &[("lesson", &spec.lesson.to_string())])),
                     button(text("+")).on_press(Message::LessonDelta(1)),
                 ]
                 .spacing(6)
@@ -380,35 +430,49 @@ impl App {
 
         let footer: Element<'_, Message> = if let Some(o) = tutor.outcome() {
             let mark = |ok: bool| if ok { palette.correct } else { palette.wrong };
+            let line = |label: &str, key: &str, v: f64| {
+                let value = tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
+                text(format!("{} {value}", tr.tr(label)))
+            };
             let mut results = column![
-                text(format!("Tiempo: {:.1} s", o.stats.elapsed.as_secs_f64())),
-                text(format!("Precisión: {:.1} %", o.stats.accuracy)).color(mark(o.check.accuracy)),
-                text(format!("Velocidad: {:.1} PPM", o.stats.wpm)).color(mark(o.check.speed)),
+                line(
+                    "stats-elapsed",
+                    "stats-seconds",
+                    o.stats.elapsed.as_secs_f64()
+                ),
+                line("stats-accuracy", "stats-percent", o.stats.accuracy)
+                    .color(mark(o.check.accuracy)),
+                line("stats-wpm", "stats-wpm-value", o.stats.wpm).color(mark(o.check.speed)),
             ]
             .spacing(4);
             if let Some(ok) = o.check.fluidity {
-                results =
-                    results.push(text(format!("Fluidez: {:.1}", o.stats.fluidity)).color(mark(ok)));
+                results = results.push(
+                    text(format!(
+                        "{} {:.1}",
+                        tr.tr("stats-fluidity"),
+                        o.stats.fluidity
+                    ))
+                    .color(mark(ok)),
+                );
             }
             if let Some(note) = &self.note {
                 results = results.push(text(note.clone()).size(14));
             }
             results
-                .push(text(comment_text(o.comment)).size(18))
-                .push(text("Enter: seguir").size(13))
+                .push(text(comment_text(tr, o.comment)).size(18))
+                .push(text(tr.tr("tutor-end")).size(13))
                 .into()
         } else {
             let (done, total) = tutor.progress();
-            text(format!(
-                "{done}/{total} · Esc: nuevo ejercicio · Ctrl+A: colores{}",
-                if spec.module == Module::Fluidity {
-                    " · Backspace corrige"
-                } else {
-                    ""
-                }
-            ))
-            .size(13)
-            .into()
+            let key = if spec.module == Module::Fluidity {
+                "tutor-hint-backspace"
+            } else {
+                "tutor-hint"
+            };
+            let (done, total) = (done.to_string(), total.to_string());
+            text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
+                .size(13)
+                .into()
         };
 
         column![header, exercise, footer].spacing(12).into()

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Generación de ejercicios y textos provisorios en español (en la fase de i18n pasan a
-//! Fluent). Compartido por la interfaz gráfica y la práctica en terminal.
+//! Generación de ejercicios y textos traducidos de cada resultado. Compartido por la
+//! interfaz gráfica y la práctica en terminal.
 
 use std::io;
 
@@ -10,6 +10,7 @@ use klavaro_core::goals::Comment;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
+use klavaro_i18n::Translator;
 
 use crate::assets;
 use crate::profile::{Notice, Recorded};
@@ -60,70 +61,84 @@ pub(crate) fn generate(
     })
 }
 
-/// Nombre del módulo para mostrar.
-pub(crate) fn module_name(m: Module) -> &'static str {
+/// Clave de Fluent del nombre de un módulo.
+pub(crate) fn module_key(m: Module) -> &'static str {
     match m {
-        Module::Basic => "Curso básico",
-        Module::Adaptability => "Adaptabilidad",
-        Module::Velocity => "Velocidad",
-        Module::Fluidity => "Fluidez",
+        Module::Basic => "module-basic",
+        Module::Adaptability => "module-adaptability",
+        Module::Velocity => "module-velocity",
+        Module::Fluidity => "module-fluidity",
     }
 }
 
+/// Nombre del módulo para mostrar.
+pub(crate) fn module_name(tr: &Translator, m: Module) -> String {
+    tr.tr(module_key(m))
+}
+
+/// Un número sin decimales, como los `%.0f` del original.
+pub(crate) fn whole(v: f64) -> String {
+    format!("{v:.0}")
+}
+
 /// Texto del comentario de fin de ejercicio.
-pub(crate) fn comment_text(c: Comment) -> String {
-    match c {
-        Comment::TooManyErrors => ":-( Demasiados errores. Más despacio y con atención.".into(),
-        Comment::BasicNextLesson => "¡Bien! Enter para pasar a la próxima lección.".into(),
-        Comment::BasicCourseCompleted => "¡Completaste el curso básico!".into(),
-        Comment::AdaptTryAgain { target } => format!("Intentá de nuevo, hasta {target:.0} %."),
-        Comment::AdaptImproving { target } => format!("Vas bien. Llegá a {target:.0} %."),
-        Comment::AdaptAlmostThere { target } => format!("Casi: la meta es {target:.0} %."),
-        Comment::AdaptDone => "¡Muy bien! Seguí con el ejercicio de Velocidad.".into(),
-        Comment::VeloBePatient => "Paciencia: practicá un poco todos los días.".into(),
-        Comment::VeloKeepGoing { target } => format!("Buen ritmo. Próxima meta: {target:.0} PPM."),
-        Comment::VeloDone {
-            next_target: Some(t),
-        } => {
-            format!("¡Meta cumplida! Si querés más: {t:.0} PPM.")
-        }
-        Comment::VeloDone { next_target: None } => "¡Velocidad de profesional!".into(),
-        Comment::FluidTooSlow { target } => {
-            format!("Preciso pero lento: apuntá a {target:.0} PPM.")
-        }
-        Comment::FluidIrregular { target } => format!("Ritmo irregular: apuntá a {target:.0}."),
-        Comment::FluidAlmostThere { target } => format!("Casi: fluidez {target:.0}."),
-        Comment::FluidCongratulations => "¡Felicitaciones!".into(),
-        Comment::FluidBeyondExpectations => "¡Superaste todas las expectativas!".into(),
+pub(crate) fn comment_text(tr: &Translator, c: Comment) -> String {
+    let (key, target) = match c {
+        Comment::TooManyErrors => ("comment-too-many-errors", None),
+        Comment::BasicNextLesson => ("comment-basic-next", None),
+        Comment::BasicCourseCompleted => ("comment-basic-done", None),
+        Comment::AdaptTryAgain { target } => ("comment-adapt-try-again", Some(target)),
+        Comment::AdaptImproving { target } => ("comment-adapt-improving", Some(target)),
+        Comment::AdaptAlmostThere { target } => ("comment-adapt-almost", Some(target)),
+        Comment::AdaptDone { target } => ("comment-adapt-done", Some(target)),
+        Comment::VeloBeginning => ("comment-velo-beginning", None),
+        Comment::VeloHighway { target } => ("comment-velo-highway", Some(target)),
+        Comment::VeloFaster { target } => ("comment-velo-faster", Some(target)),
+        Comment::VeloRunning { target } => ("comment-velo-running", Some(target)),
+        Comment::VeloAlmostThere { target } => ("comment-velo-almost", Some(target)),
+        Comment::VeloEnough => ("comment-velo-enough", None),
+        Comment::VeloProfessional { target } => ("comment-velo-professional", Some(target)),
+        Comment::VeloSpeedRacer { target } => ("comment-velo-speed-racer", Some(target)),
+        Comment::VeloKungFu { target } => ("comment-velo-kung-fu", Some(target)),
+        Comment::VeloMaster => ("comment-velo-master", None),
+        Comment::FluidTooSlow { target } => ("comment-fluid-too-slow", Some(target)),
+        Comment::FluidIrregular { target } => ("comment-fluid-irregular", Some(target)),
+        Comment::FluidAlmostThere { target } => ("comment-fluid-almost", Some(target)),
+        Comment::FluidCongratulations => ("comment-fluid-congratulations", None),
+        Comment::FluidBeyondExpectations => ("comment-fluid-beyond", None),
+    };
+    match target {
+        Some(t) => tr.tr_args(key, &[("target", &whole(t))]),
+        None => tr.tr(key),
     }
 }
 
 /// Nota sobre el registro del ejercicio, si hay algo que contar.
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
-pub(crate) fn recorded_text(r: Recorded) -> Option<String> {
+pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
     match r {
         Recorded::Logged(None | Some(Rejection::ScoreTooLow)) => None,
-        Recorded::Logged(Some(Rejection::Invalid)) => Some(":-P".into()),
-        Recorded::Logged(Some(Rejection::TextNotSimilar)) => Some(
-            "El texto no se parece a los textos comunes del idioma elegido: no cuenta para el \
-             Top 10."
-                .into(),
-        ),
-        Recorded::Ranked(place) => Some(format!("¡Entraste al Top 10 en el puesto {place}!")),
-        Recorded::TooShort { chars } => Some(format!(
-            "No se registró: tecleaste {chars} caracteres y hacen falta al menos {MIN_CHARS}."
+        Recorded::Logged(Some(Rejection::Invalid)) => Some(tr.tr("ps-invalid")),
+        Recorded::Logged(Some(Rejection::TextNotSimilar)) => Some(tr.tr("ps-not-similar")),
+        Recorded::Ranked(_) => Some(tr.tr("ps-ranked")),
+        Recorded::TooShort { chars } => Some(tr.tr_args(
+            "ps-not-logged",
+            &[
+                ("chars", &chars.to_string()),
+                ("min", &MIN_CHARS.to_string()),
+            ],
         )),
     }
 }
 
 /// Mensaje al abrir la aplicación.
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
-pub(crate) fn notice_text(n: &Notice) -> String {
+pub(crate) fn notice_text(tr: &Translator, n: &Notice) -> String {
     match n {
         Notice::Imported { sessions } => {
-            format!("Se importaron {sessions} sesiones y las preferencias del Klavaro original.")
+            tr.tr_args("notice-imported", &[("sessions", &sessions.to_string())])
         }
-        Notice::Error(e) => format!("No se pudieron leer o guardar tus datos: {e}"),
+        Notice::Error(e) => tr.tr_args("notice-error", &[("error", e)]),
     }
 }
 
@@ -144,5 +159,64 @@ mod tests {
             let text = generate(&spec, &layout, 3).expect("texto");
             assert!(!text.trim().is_empty(), "{module:?}");
         }
+    }
+
+    /// Ningún texto queda sin traducir (mostraría la clave) en inglés ni en español.
+    #[test]
+    fn every_message_is_translated() {
+        let comments = [
+            Comment::TooManyErrors,
+            Comment::BasicNextLesson,
+            Comment::BasicCourseCompleted,
+            Comment::AdaptTryAgain { target: 90.0 },
+            Comment::AdaptImproving { target: 95.0 },
+            Comment::AdaptAlmostThere { target: 98.0 },
+            Comment::AdaptDone { target: 98.0 },
+            Comment::VeloBeginning,
+            Comment::VeloHighway { target: 20.0 },
+            Comment::VeloFaster { target: 30.0 },
+            Comment::VeloRunning { target: 40.0 },
+            Comment::VeloAlmostThere { target: 50.0 },
+            Comment::VeloEnough,
+            Comment::VeloProfessional { target: 70.0 },
+            Comment::VeloSpeedRacer { target: 80.0 },
+            Comment::VeloKungFu { target: 90.0 },
+            Comment::VeloMaster,
+            Comment::FluidTooSlow { target: 50.0 },
+            Comment::FluidIrregular { target: 60.0 },
+            Comment::FluidAlmostThere { target: 70.0 },
+            Comment::FluidCongratulations,
+            Comment::FluidBeyondExpectations,
+        ];
+        for code in ["C", "es"] {
+            let tr = Translator::new(code);
+            for c in comments {
+                let text = comment_text(&tr, c);
+                assert!(!text.starts_with("comment-"), "{code}: {c:?}");
+                assert!(!text.contains("{$"), "{code}: {c:?} sin argumento");
+            }
+            for m in Module::ALL {
+                assert!(tr.has(module_key(m)), "{code}: {m:?}");
+            }
+            let notes = [
+                Recorded::Logged(Some(Rejection::Invalid)),
+                Recorded::Logged(Some(Rejection::TextNotSimilar)),
+                Recorded::Ranked(1),
+                Recorded::TooShort { chars: 10 },
+            ];
+            for r in notes {
+                let text = recorded_text(&tr, r).expect("nota");
+                assert!(
+                    !text.starts_with("ps-") && !text.contains("{$"),
+                    "{code}: {r:?}"
+                );
+            }
+        }
+        let es = Translator::new("es");
+        assert!(comment_text(&es, Comment::VeloRunning { target: 40.0 }).contains("40 PPM"));
+        assert!(
+            recorded_text(&es, Recorded::TooShort { chars: 120 })
+                .is_some_and(|t| t.contains("(120)") && t.contains("500"))
+        );
     }
 }

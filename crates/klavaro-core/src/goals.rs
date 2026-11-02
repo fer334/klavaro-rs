@@ -123,33 +123,41 @@ impl Goals {
                 target: self.adaptability.accuracy,
             }
         } else {
-            Comment::AdaptDone
+            Comment::AdaptDone {
+                target: self.adaptability.accuracy,
+            }
         }
     }
 
+    /// Diez escalones como `velo_comment` de `velocity.c`: cuatro niveles hasta la meta y
+    /// cuatro más allá.
     fn velo_comment(&self, stats: &Stats) -> Comment {
         if stats.accuracy < self.velocity.accuracy {
             return Comment::TooManyErrors;
         }
-        let speed = stats.wpm;
-        let levels = self.velo_levels;
-        if speed < levels[0] {
-            return Comment::VeloBePatient;
-        }
-        if speed < self.velocity.speed {
-            let next = levels
-                .iter()
-                .copied()
-                .find(|&l| speed < l)
-                .unwrap_or(self.velocity.speed)
-                .min(self.velocity.speed);
-            return Comment::VeloKeepGoing { target: next };
-        }
-        match levels.iter().copied().find(|&l| speed < l) {
-            Some(next) => Comment::VeloDone {
-                next_target: Some(next),
-            },
-            None => Comment::VeloDone { next_target: None },
+        let v = stats.wpm;
+        let [l0, l1, l2, l3, l4, l5, l6, l7] = self.velo_levels;
+        let goal = self.velocity.speed;
+        if v < l0 {
+            Comment::VeloBeginning
+        } else if v < l1 {
+            Comment::VeloHighway { target: l1 }
+        } else if v < l2 {
+            Comment::VeloFaster { target: l2 }
+        } else if v < l3 {
+            Comment::VeloRunning { target: l3 }
+        } else if v < goal {
+            Comment::VeloAlmostThere { target: goal }
+        } else if v < l4 {
+            Comment::VeloEnough
+        } else if v < l5 {
+            Comment::VeloProfessional { target: l5 }
+        } else if v < l6 {
+            Comment::VeloSpeedRacer { target: l6 }
+        } else if v < l7 {
+            Comment::VeloKungFu { target: l7 }
+        } else {
+            Comment::VeloMaster
         }
     }
 
@@ -216,20 +224,52 @@ pub enum Comment {
         /// Precisión objetivo.
         target: f64,
     },
-    /// Adaptabilidad completa: pasar a Velocidad.
-    AdaptDone,
-    /// Velocidad muy baja: paciencia y práctica diaria.
-    VeloBePatient,
-    /// Velocidad en progreso hacia `target` PPM.
-    VeloKeepGoing {
+    /// Adaptabilidad completa (precisión por encima de `target` %): pasar a Velocidad.
+    AdaptDone {
+        /// Meta de precisión superada.
+        target: f64,
+    },
+    /// Velocidad: recién empieza; paciencia y práctica diaria.
+    VeloBeginning,
+    /// Velocidad: lejos de la autopista, llegar a `target` PPM.
+    VeloHighway {
         /// Velocidad objetivo.
         target: f64,
     },
-    /// Meta de velocidad cumplida; `next_target` es el siguiente nivel, si queda alguno.
-    VeloDone {
-        /// Siguiente nivel en PPM.
-        next_target: Option<f64>,
+    /// Velocidad: bien, pero más rápido; llegar a `target` PPM.
+    VeloFaster {
+        /// Velocidad objetivo.
+        target: f64,
     },
+    /// Velocidad: empezar a correr hasta `target` PPM.
+    VeloRunning {
+        /// Velocidad objetivo.
+        target: f64,
+    },
+    /// Velocidad: casi en la meta de `target` PPM.
+    VeloAlmostThere {
+        /// Velocidad objetivo (la meta).
+        target: f64,
+    },
+    /// Meta de velocidad cumplida: pasar a Fluidez.
+    VeloEnough,
+    /// Velocidad de profesional; ¿llegará a `target` PPM?
+    VeloProfessional {
+        /// Siguiente nivel.
+        target: f64,
+    },
+    /// "Speed Racer"; ¿llegará a `target` PPM?
+    VeloSpeedRacer {
+        /// Siguiente nivel.
+        target: f64,
+    },
+    /// Maestría de kung-fu; ¿volará a `target` PPM?
+    VeloKungFu {
+        /// Último nivel.
+        target: f64,
+    },
+    /// Más allá del último nivel ("Dvorak master").
+    VeloMaster,
     /// Fluidez: preciso pero lento.
     FluidTooSlow {
         /// Velocidad objetivo.
@@ -302,7 +342,7 @@ mod tests {
         assert_eq!(c(80.0), Comment::AdaptTryAgain { target: 90.0 });
         assert_eq!(c(92.0), Comment::AdaptImproving { target: 95.0 });
         assert_eq!(c(96.0), Comment::AdaptAlmostThere { target: 98.0 });
-        assert_eq!(c(99.0), Comment::AdaptDone);
+        assert_eq!(c(99.0), Comment::AdaptDone { target: 98.0 });
     }
 
     #[test]
@@ -315,16 +355,22 @@ mod tests {
                 CommentContext::default(),
             )
         };
-        assert_eq!(c(5.0), Comment::VeloBePatient);
-        assert_eq!(c(25.0), Comment::VeloKeepGoing { target: 30.0 });
-        assert_eq!(c(45.0), Comment::VeloKeepGoing { target: 50.0 });
-        assert_eq!(
-            c(55.0),
-            Comment::VeloDone {
-                next_target: Some(60.0)
-            }
+        assert_eq!(c(5.0), Comment::VeloBeginning);
+        assert_eq!(c(15.0), Comment::VeloHighway { target: 20.0 });
+        assert_eq!(c(25.0), Comment::VeloFaster { target: 30.0 });
+        assert_eq!(c(35.0), Comment::VeloRunning { target: 40.0 });
+        assert_eq!(c(45.0), Comment::VeloAlmostThere { target: 50.0 });
+        assert_eq!(c(55.0), Comment::VeloEnough);
+        assert_eq!(c(65.0), Comment::VeloProfessional { target: 70.0 });
+        assert_eq!(c(75.0), Comment::VeloSpeedRacer { target: 80.0 });
+        assert_eq!(c(85.0), Comment::VeloKungFu { target: 90.0 });
+        assert_eq!(c(95.0), Comment::VeloMaster);
+        let low = g.comment(
+            Module::Velocity,
+            &stats(90.0, 95.0, 50.0),
+            CommentContext::default(),
         );
-        assert_eq!(c(95.0), Comment::VeloDone { next_target: None });
+        assert_eq!(low, Comment::TooManyErrors);
     }
 
     #[test]

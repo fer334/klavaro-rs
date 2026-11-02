@@ -3,9 +3,9 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fase 3. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
-> guarda la configuración, el historial y el Top 10 de Fluidez, e importa la primera vez los
-> datos del Klavaro original. También hay una práctica alternativa en la terminal:
+> Estado: fase 4. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
+> guarda la configuración, el historial y el Top 10 de Fluidez, importa la primera vez los
+> datos del Klavaro original y muestra los textos en los 40 idiomas del original. También hay una práctica alternativa en la terminal:
 >
 > ```sh
 > cargo run                                   # abre la ventana
@@ -28,7 +28,7 @@ teclado, textos y traducciones), por lo que se distribuye con la misma licencia.
 | `klavaro-core` | Dominio puro: sesión, métricas, metas, generadores, rastreo por tecla, ranking |
 | `klavaro-data` | Formatos del original: `.kbd`, `basic_lessons.txt`, `.words`, `.paragraphs`, historial e INI |
 | `klavaro-store` | `config.toml`, historial y Top 10 en SQLite, importación del Klavaro original |
-| `klavaro-i18n` | Catálogo de idiomas y detección (y, más adelante, traducciones Fluent) |
+| `klavaro-i18n` | Catálogo de idiomas, detección y textos traducidos con Fluent |
 | `klavaro-app` | Binario `klavaro-rs` (interfaz iced en la fase 2) |
 
 Ver [ARCHITECTURE.md](ARCHITECTURE.md).
@@ -63,6 +63,15 @@ Descargar Klavaro 3.14 en `upstream/` (no se versiona), por ejemplo:
 mkdir upstream && cd upstream
 apt source klavaro            # o descomprimir klavaro-3.14.tar.bz2 de SourceForge
 ```
+
+## Traducciones
+
+- `crates/klavaro-i18n/locales/klavaro/*.ftl`: mensajes del Klavaro original (nombres de
+  módulos, estadísticas, comentarios, Top 10), generados desde sus `.po` con
+  `python3 tools/po2ftl.py`. No se editan a mano.
+- `crates/klavaro-i18n/locales/app/*.ftl`: textos propios de klavaro-rs (por ahora inglés y
+  español). Una clave definida acá tiene prioridad sobre la del original; lo que falta en un
+  idioma se muestra en inglés.
 
 ## Licencia
 
