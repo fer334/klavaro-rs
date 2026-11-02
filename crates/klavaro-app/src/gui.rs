@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::advanced::input_method;
 use iced::keyboard::{self, key::Named};
+use iced::widget::operation::{self, RelativeOffset};
 use iced::widget::text::Span;
 use iced::widget::{
     Space, button, canvas, checkbox, column, container, pick_list, progress_bar, rich_text, row,
@@ -56,6 +57,16 @@ struct UiLanguage {
 impl std::fmt::Display for UiLanguage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.name)
+    }
+}
+
+/// Idioma de los textos en la lista desplegable: el código, mostrado con su nombre.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TextLanguage(String);
+
+impl std::fmt::Display for TextLanguage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(klavaro_i18n::native_name(&self.0).unwrap_or(&self.0))
     }
 }
 
@@ -207,6 +218,11 @@ impl App {
             app.error = Some(e.to_string());
         }
         app
+    }
+
+    /// Idiomas de los textos para las listas desplegables.
+    fn text_languages(&self) -> Vec<TextLanguage> {
+        self.languages.iter().cloned().map(TextLanguage).collect()
     }
 
     /// Copia el estado de la pantalla a la configuración y la guarda.
@@ -364,13 +380,19 @@ impl App {
         if let Err(e) = result {
             self.error = Some(e.to_string());
         }
-        match self.dictate() {
+        // El aviso de la importación (o de preferencias guardadas) es para el menú: al salir
+        // de él ya se vio.
+        if !matches!(self.screen, Screen::Menu) {
+            self.notice = None;
+        }
+        let tip = match self.dictate() {
             Some(at) if self.basic_tutor() => self.schedule_tip(at),
             _ => {
                 self.finger_tip = None;
                 Task::none()
             }
-        }
+        };
+        Task::batch([tip, self.follow_cursor()])
     }
 
     /// Mensajes de los botones del ejercicio (fuera de él no hacen nada).
@@ -445,6 +467,18 @@ impl App {
             || matches!(&self.screen, Screen::Tutor(t) if t.spec().module == Module::Velocity);
         self.audio.say(&voice, &spoken(&self.tr, &say), punct);
         Some(at)
+    }
+
+    /// Desplaza el texto del ejercicio para que el cursor quede a la vista. La posición es
+    /// proporcional al avance: alcanza también para párrafos que se parten en varias líneas.
+    fn follow_cursor(&self) -> Task<Message> {
+        let Screen::Tutor(t) = &self.screen else {
+            return Task::none();
+        };
+        let (done, total) = t.progress();
+        #[allow(clippy::cast_precision_loss)]
+        let y = done as f32 / total.max(1) as f32;
+        operation::snap_to(EXERCISE_SCROLL, RelativeOffset { x: 0.0, y })
     }
 
     /// Si se está en un ejercicio del curso básico.
@@ -796,9 +830,9 @@ impl App {
             .width(Length::Fill)
             .style(style::pick);
         let language = pick_list(
-            self.languages.clone(),
-            Some(self.language.clone()),
-            Message::LanguageSelected,
+            self.text_languages(),
+            Some(TextLanguage(self.language.clone())),
+            |l| Message::LanguageSelected(l.0),
         )
         .width(Length::Fill)
         .style(style::pick);
@@ -930,6 +964,7 @@ impl App {
                 .padding([24, 32])
                 .width(Length::Fill),
             )
+            .id(EXERCISE_SCROLL)
             .height(Length::Fill),
         )
         .height(Length::Fill)
@@ -1066,7 +1101,9 @@ impl App {
         // Igual que el título de la ventana del original: teclado o idioma según el módulo.
         let scope = match v.module {
             Module::Basic | Module::Adaptability => self.keyboard.clone(),
-            Module::Velocity | Module::Fluidity => self.language.clone(),
+            Module::Velocity | Module::Fluidity => klavaro_i18n::native_name(&self.language)
+                .unwrap_or(&self.language)
+                .to_owned(),
         };
         let mut filters = row![text(scope).size(13).style(style::muted)]
             .spacing(12)
@@ -1094,7 +1131,11 @@ impl App {
                 ],
             ),
             (Some(first), Some(last)) => tr.tr_args(
-                "progress-sessions",
+                if chart.points.len() == 1 {
+                    "progress-session-one"
+                } else {
+                    "progress-sessions"
+                },
                 &[
                     ("count", &chart.points.len().to_string()),
                     ("first", &format_date_time(first.at)),
@@ -1270,9 +1311,9 @@ impl App {
             table = table.push(entry);
         }
         let language = pick_list(
-            self.languages.clone(),
-            Some(self.language.clone()),
-            Message::LanguageSelected,
+            self.text_languages(),
+            Some(TextLanguage(self.language.clone())),
+            |l| Message::LanguageSelected(l.0),
         )
         .style(style::pick);
         column![
@@ -1505,6 +1546,9 @@ fn styled_span(segment: Segment, p: &Palette) -> Span<'static, Message> {
         SegmentStyle::Cursor => s.color(p.cursor).background(p.cursor_bg),
     }
 }
+
+/// Identificador del área con el texto del ejercicio, para seguir al cursor.
+const EXERCISE_SCROLL: &str = "exercise";
 
 /// Espera del dictado del dedo en el curso básico (`g_timeout_add (3000, …)` del original).
 const FINGER_TIP_DELAY: Duration = Duration::from_secs(3);

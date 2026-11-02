@@ -11,12 +11,62 @@ use std::path::{Path, PathBuf};
 use std::collections::BTreeMap;
 
 use klavaro_core::Module;
+use klavaro_core::ranking::{Ranking, RankingEntry};
 use klavaro_core::tracker::{ERROR_INERTIA, ErrorEntry, KeyTracker, TimeEntry};
 use klavaro_data::legacy::{self, LegacyPreferences, StatRecord};
 
-use crate::date::parse_date_time;
+use crate::date::{local_to_utc, parse_local};
 use crate::history::{History, ScoreRecord, SessionRecord};
 use crate::{Result, io_error};
+
+/// Marca aparte para el Top 10 local (`ksc/local_<xx>.ksc`), que se agregó después.
+pub const RANKING_IMPORTED_KEY: &str = "legacy_ranking_imported";
+
+/// Marca de que ya se pasaron a UTC las horas importadas como locales.
+pub const UTC_TIMES_KEY: &str = "legacy_times_utc";
+
+/// Pasa a UTC las horas importadas antes de esta corrección, que se guardaron como hora
+/// local. Sólo toca lo importado: sesiones sin pulsaciones (el original no las guarda) y los
+/// puntajes de Fluidez del mismo instante que una de ellas. Se hace una sola vez; las bases
+/// nuevas quedan marcadas sin cambios, porque se importan ya en UTC.
+///
+/// # Errors
+///
+/// Si falla la base.
+pub fn utc_times_once(history: &mut History, fresh: bool) -> Result<bool> {
+    if history.meta(UTC_TIMES_KEY)?.is_some() {
+        return Ok(false);
+    }
+    if !fresh {
+        let tx = history.conn.transaction()?;
+        let times: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT DISTINCT at FROM sessions WHERE touches IS NULL")?;
+            stmt.query_map([], |row| row.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        for at in times {
+            let utc = local_to_utc(at);
+            if utc == at {
+                continue;
+            }
+            tx.execute(
+                "UPDATE scores SET at = ?1 WHERE at = ?2",
+                rusqlite::params![utc, at],
+            )?;
+            tx.execute(
+                "UPDATE sessions SET at = ?1 WHERE at = ?2 AND touches IS NULL",
+                rusqlite::params![utc, at],
+            )?;
+        }
+        tx.commit()?;
+    }
+    history.set_meta(UTC_TIMES_KEY, "1")?;
+    Ok(true)
+}
+
+/// Marca de que ya se pasaron a códigos los idiomas importados con su nombre (importaciones
+/// hechas antes de esta corrección).
+pub const LANGUAGE_CODES_KEY: &str = "legacy_language_codes";
 
 /// Clave de la tabla `meta` que marca que ya se importó.
 pub const IMPORTED_KEY: &str = "legacy_imported";
@@ -95,13 +145,13 @@ pub fn import(history: &mut History, dirs: &[PathBuf]) -> Result<ImportReport> {
             let imported = legacy::parse_scores(&text);
             report.skipped += imported.errors.len();
             for s in imported.records {
-                match parse_date_time(&s.date, &s.time) {
+                match parse_local(&s.date, &s.time) {
                     Some(at) => {
                         history.record_score(&ScoreRecord {
                             at,
                             score: s.score,
                             chars: s.chars,
-                            language: s.language,
+                            language: language_code(&s.language),
                         })?;
                         report.scores += 1;
                     }
@@ -206,11 +256,13 @@ fn key_logs(dir: &Path) -> Result<Vec<(String, KeyLog, PathBuf)>> {
 /// Convierte una fila de `stat_<módulo>.txt`. Las columnas 6 y 7 cambian de sentido según el
 /// módulo (ver `tutor.c`).
 pub fn session_from_stat(module: Module, r: &StatRecord) -> Option<SessionRecord> {
-    let at = parse_date_time(&r.date, &r.time)?;
+    let at = parse_local(&r.date, &r.time)?;
     let (lesson, keyboard, language) = match module {
         Module::Basic => (Some(r.lesson.clone()), Some(r.tag.clone()), None),
-        Module::Adaptability => (None, Some(r.lesson.clone()), Some(r.tag.clone())),
-        Module::Velocity | Module::Fluidity => (Some(r.lesson.clone()), None, Some(r.tag.clone())),
+        Module::Adaptability => (None, Some(r.lesson.clone()), Some(language_code(&r.tag))),
+        Module::Velocity | Module::Fluidity => {
+            (Some(r.lesson.clone()), None, Some(language_code(&r.tag)))
+        }
     };
     Some(SessionRecord {
         module,
@@ -225,6 +277,118 @@ pub fn session_from_stat(module: Module, r: &StatRecord) -> Option<SessionRecord
         keyboard,
         language,
     })
+}
+
+/// Importa el Top 10 local del original (`ksc/local_<xx>.ksc`) si todavía no se hizo, para
+/// los idiomas que todavía no tienen ranking propio. Devuelve los idiomas importados, o
+/// `None` si ya se había hecho.
+///
+/// # Errors
+///
+/// Si una carpeta o un archivo existe pero no se puede leer, o falla la base.
+pub fn import_ranking_once(history: &mut History, dirs: &[PathBuf]) -> Result<Option<Vec<String>>> {
+    if history.meta(RANKING_IMPORTED_KEY)?.is_some() {
+        return Ok(None);
+    }
+    let mut imported = Vec::new();
+    for dir in dirs {
+        let ksc = dir.join("ksc");
+        let entries = match fs::read_dir(&ksc) {
+            Ok(e) => e,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(io_error(&ksc)(e)),
+        };
+        let mut files: Vec<PathBuf> = entries
+            .filter_map(std::result::Result::ok)
+            .map(|e| e.path())
+            .collect();
+        files.sort();
+        for path in files {
+            let Some(two) = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.strip_prefix("local_"))
+                .and_then(|n| n.strip_suffix(".ksc"))
+            else {
+                continue;
+            };
+            let Some(language) = language_from_two_letters(two) else {
+                continue;
+            };
+            if !history.ranking(&language)?.entries().is_empty() {
+                continue;
+            }
+            let bytes = fs::read(&path).map_err(io_error(&path))?;
+            let entries: Vec<RankingEntry> = legacy::parse_ksc(&bytes)
+                .into_iter()
+                .map(|k| RankingEntry {
+                    name: k.name,
+                    language: language.clone(),
+                    when: k.when,
+                    chars: k.chars,
+                    accuracy: k.accuracy,
+                    wpm: k.wpm,
+                    fluidity: k.fluidity,
+                    score: k.score,
+                })
+                .collect();
+            if entries.is_empty() {
+                continue;
+            }
+            history.save_ranking(&language, &Ranking::new(entries))?;
+            imported.push(language);
+        }
+    }
+    history.set_meta(RANKING_IMPORTED_KEY, &imported.len().to_string())?;
+    Ok(Some(imported))
+}
+
+/// Código del idioma a partir de las dos letras del nombre del `.ksc` (`en` es `C`).
+fn language_from_two_letters(two: &str) -> Option<String> {
+    if two == "en" {
+        return Some(klavaro_i18n::FALLBACK.to_owned());
+    }
+    klavaro_i18n::LANGUAGES
+        .iter()
+        .map(|(c, _)| *c)
+        .find(|c| c.get(..2) == Some(two))
+        .map(str::to_owned)
+}
+
+/// El original guarda el idioma por su nombre nativo («Español»); el historial usa el código
+/// (`es`), como el resto de la app. Un nombre desconocido se deja tal cual.
+fn language_code(name: &str) -> String {
+    klavaro_i18n::code_from_name(name).map_or_else(|| name.to_owned(), str::to_owned)
+}
+
+/// Pasa a códigos los idiomas guardados por nombre en importaciones anteriores. Se hace una
+/// sola vez; devuelve si se hizo ahora.
+///
+/// # Errors
+///
+/// Si falla la base.
+pub fn normalize_languages_once(history: &mut History) -> Result<bool> {
+    if history.meta(LANGUAGE_CODES_KEY)?.is_some() {
+        return Ok(false);
+    }
+    let tx = history.conn.transaction()?;
+    for (code, name) in klavaro_i18n::LANGUAGES {
+        tx.execute(
+            "UPDATE sessions SET language = ?1 WHERE language = ?2",
+            [code, name],
+        )?;
+        tx.execute(
+            "UPDATE scores SET language = ?1 WHERE language = ?2",
+            [code, name],
+        )?;
+        tx.execute(
+            "UPDATE ranking SET language = ?1 WHERE language = ?2",
+            [code, name],
+        )?;
+    }
+    tx.commit()?;
+    history.set_meta(LANGUAGE_CODES_KEY, "1")?;
+    Ok(true)
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>> {
@@ -331,5 +495,94 @@ mod tests {
         assert_eq!(t.error_total(), 5);
         assert_eq!(t.times()[0].samples(), [0.5, 0.5, 0.5]);
         assert_eq!(import_keys_once(&mut h, &dirs).expect("segunda vez"), None);
+    }
+
+    #[test]
+    fn languages_become_codes() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write(
+            tmp.path(),
+            "stat_fluid.txt",
+            "Accuracy\tVelocity\tFluidness\tDate\tHour\tLesson\tLanguage\n\
+             92.89\t52.71\t71.46\t2024-12-09\t07:47\tDefault\tEspañol\n",
+        );
+        write(
+            tmp.path(),
+            "scores_fluid.txt",
+            "Score\tDate\tTime\t# chars\tLang\n6.137\t2024-12-09\t07:47\t1491\tEspañol\n",
+        );
+        let mut h = History::in_memory().expect("base");
+        import(&mut h, &[tmp.path().to_path_buf()]).expect("importar");
+        let fluid = h.recent(Module::Fluidity, 10).expect("leer");
+        assert_eq!(fluid[0].language.as_deref(), Some("es"));
+        assert_eq!(h.recent_scores(Some("es"), 10).expect("leer").len(), 1);
+    }
+
+    #[test]
+    fn fixes_names_from_earlier_imports_once() {
+        let mut h = History::in_memory().expect("base");
+        h.record_score(&ScoreRecord {
+            at: 1,
+            score: 3.0,
+            chars: 600,
+            language: "Español".into(),
+        })
+        .expect("guardar");
+        assert!(normalize_languages_once(&mut h).expect("corregir"));
+        assert_eq!(h.recent_scores(Some("es"), 10).expect("leer").len(), 1);
+        assert!(!normalize_languages_once(&mut h).expect("segunda vez"));
+    }
+
+    #[test]
+    fn imports_the_local_top10_once() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        fs::create_dir_all(tmp.path().join("ksc")).expect("carpeta");
+        let mut bytes = b"esx".to_vec();
+        bytes.extend(1_700_000_000_i32.to_le_bytes());
+        bytes.extend(650_i32.to_le_bytes());
+        for v in [96.0_f32, 50.0, 72.0, 6.25] {
+            bytes.extend(v.to_le_bytes());
+        }
+        bytes.extend(3_i32.to_le_bytes());
+        bytes.extend(b"Ana");
+        fs::write(tmp.path().join("ksc/local_es.ksc"), &bytes).expect("escribir");
+        fs::write(tmp.path().join("ksc/global_es.ksc"), &bytes).expect("escribir");
+
+        let mut h = History::in_memory().expect("base");
+        let dirs = [tmp.path().to_path_buf()];
+        let langs = import_ranking_once(&mut h, &dirs)
+            .expect("importar")
+            .expect("primera vez");
+        assert_eq!(langs, ["es"]);
+        let top = h.ranking("es").expect("leer");
+        assert_eq!(top.entries().len(), 1);
+        assert_eq!(top.entries()[0].name, "Ana");
+        assert_eq!(top.entries()[0].chars, 650);
+        assert_eq!(import_ranking_once(&mut h, &dirs).expect("segunda"), None);
+    }
+
+    #[test]
+    fn moves_old_local_imports_to_utc_once() {
+        let mut h = History::in_memory().expect("base");
+        let local = crate::date::parse_date_time("2024-12-09", "07:47").expect("fecha");
+        let mut imported = SessionRecord::from_stats(
+            Module::Fluidity,
+            local,
+            &klavaro_core::metrics::Stats::compute(600, 5, std::time::Duration::from_secs(60), &[]),
+        );
+        imported.touches = None;
+        h.record(&imported).expect("guardar");
+        h.record_score(&ScoreRecord {
+            at: local,
+            score: 6.0,
+            chars: 1491,
+            language: "es".into(),
+        })
+        .expect("guardar");
+        assert!(utc_times_once(&mut h, false).expect("corregir"));
+        let utc = local_to_utc(local);
+        assert_eq!(h.recent(Module::Fluidity, 1).expect("leer")[0].at, utc);
+        assert_eq!(h.recent_scores(None, 1).expect("leer")[0].at, utc);
+        assert!(!utc_times_once(&mut h, false).expect("segunda"));
     }
 }

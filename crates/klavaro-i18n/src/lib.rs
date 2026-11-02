@@ -66,6 +66,15 @@ pub fn native_name(code: &str) -> Option<&'static str> {
     LANGUAGES.iter().find(|(c, _)| *c == code).map(|(_, n)| *n)
 }
 
+/// Código de un idioma a partir de su nombre nativo («Español» → `es`). El Klavaro original
+/// guarda el nombre en sus archivos de historial. Un código ya válido se devuelve tal cual.
+pub fn code_from_name(name: &str) -> Option<&'static str> {
+    LANGUAGES
+        .iter()
+        .find(|(c, n)| *n == name || *c == name)
+        .map(|(c, _)| *c)
+}
+
 /// Elige el idioma de interfaz a partir de una lista de preferencias en orden (la guardada
 /// por el usuario primero, luego las del sistema como `es_PY.UTF-8`).
 ///
@@ -124,6 +133,10 @@ mod tests {
         assert_eq!(LANGUAGES.len(), 40);
         assert!(is_supported("pt_BR"));
         assert_eq!(native_name("es"), Some("Español"));
+        assert_eq!(code_from_name("Español"), Some("es"));
+        assert_eq!(code_from_name("English"), Some("C"));
+        assert_eq!(code_from_name("es"), Some("es"));
+        assert_eq!(code_from_name("Klingon"), None);
     }
 
     #[test]

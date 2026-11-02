@@ -48,3 +48,5 @@ settings-beep = Beep on errors
 hint-left = { $finger } (left hand)
 hint-right = { $finger } (right hand)
 hint-shift = Shift with the opposite hand
+notice-imported-sessions = Imported { $sessions } sessions from the original Klavaro.
+progress-session-one = Last session · { $first }

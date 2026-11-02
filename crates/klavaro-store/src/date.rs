@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Fechas del calendario gregoriano y segundos desde 1970, sin depender de la zona horaria.
+//! Fechas del calendario gregoriano y segundos desde 1970.
 //!
-//! El historial guarda instantes como segundos desde 1970. El original escribe la fecha y
-//! hora locales (`AAAA-MM-DD HH:MM`); al importarlas se toman tal cual, sin corregir la zona,
-//! lo que alcanza para ordenar y graficar.
+//! El historial guarda instantes reales (UTC) en segundos desde 1970 y se muestran en la hora
+//! local ([`format_date_time`]). El original escribe la fecha y hora locales en sus `.txt`
+//! (`AAAA-MM-DD HH:MM`); al importarlas se pasan a UTC con [`parse_local`]. Las cuentas del
+//! calendario no dependen de la zona; sólo las conversiones usan la del sistema.
+
+use chrono::{DateTime, Local, TimeZone};
 
 /// Días desde 1970-01-01 de una fecha (algoritmo de Howard Hinnant).
 pub fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
@@ -55,8 +58,32 @@ pub fn parse_date_time(date: &str, time: &str) -> Option<i64> {
     Some(days_from_civil(year, month, day) * 86_400 + hour * 3600 + minute * 60 + second)
 }
 
-/// Formatea segundos desde 1970 como `AAAA-MM-DD HH:MM`.
+/// Lee una fecha y hora locales del original y devuelve el instante real (UTC).
+pub fn parse_local(date: &str, time: &str) -> Option<i64> {
+    parse_date_time(date, time).map(local_to_utc)
+}
+
+/// Pasa «segundos desde 1970» de una hora local (sin zona) al instante real, con la zona del
+/// sistema. En un salto de horario de verano ambiguo se toma el primero; en un hueco, se deja
+/// como está.
+pub fn local_to_utc(naive: i64) -> i64 {
+    DateTime::from_timestamp(naive, 0)
+        .map(|t| t.naive_utc())
+        .and_then(|n| Local.from_local_datetime(&n).earliest())
+        .map_or(naive, |t| t.timestamp())
+}
+
+/// Formatea un instante real (UTC) como `AAAA-MM-DD HH:MM` en la hora local.
 pub fn format_date_time(secs: i64) -> String {
+    let local = Local
+        .timestamp_opt(secs, 0)
+        .single()
+        .map_or(secs, |t| t.naive_local().and_utc().timestamp());
+    format_civil(local)
+}
+
+/// Formatea segundos desde 1970 como `AAAA-MM-DD HH:MM`, sin zona horaria.
+pub fn format_civil(secs: i64) -> String {
     let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
     let rest = secs.rem_euclid(86_400);
     format!(
@@ -85,9 +112,16 @@ mod tests {
     fn parses_and_formats() {
         let t = parse_date_time("2021-03-04", "10:15").expect("fecha");
         assert_eq!(t, 1_614_852_900);
-        assert_eq!(format_date_time(t), "2021-03-04 10:15");
+        assert_eq!(format_civil(t), "2021-03-04 10:15");
         assert_eq!(parse_date_time("2021-13-01", "10:00"), None);
         assert_eq!(parse_date_time("2021-01-01", "25:00"), None);
         assert_eq!(parse_date_time("ayer", "10:00"), None);
+    }
+
+    #[test]
+    fn local_times_round_trip_through_utc() {
+        // Sea cual sea la zona del sistema, una hora local importada se vuelve a mostrar igual.
+        let at = parse_local("2024-12-09", "07:47").expect("fecha");
+        assert_eq!(format_date_time(at), "2024-12-09 07:47");
     }
 }

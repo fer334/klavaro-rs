@@ -38,8 +38,13 @@ klavaro-app ──► klavaro-i18n
 - `history.sqlite3` tiene las tablas `sessions` (equivale a `stat_*.txt`), `ranking`
   (Top 10 local por idioma), `scores` (`scores_fluid.txt`) y `meta`. El esquema se versiona
   con `PRAGMA user_version`.
-- Los instantes son segundos desde 1970. Las fechas importadas del original (hora local) se
-  toman sin corregir la zona.
+- Los instantes son segundos desde 1970 en UTC y se muestran en la hora local (`chrono`). Las
+  fechas de los `.txt` del original son locales y se pasan a UTC al importar; las bases
+  importadas antes de esa corrección se arreglan una vez (`utc_times_once`).
+- El original guarda el idioma por su nombre («Español»); al importar se pasa al código
+  (`es`), y las bases ya importadas se corrigen una vez (`normalize_languages_once`).
+- El Top 10 local del original (`ksc/local_<xx>.ksc`, binario) se importa una vez para los
+  idiomas sin ranking propio.
 - Si el disco falla, la app sigue con la configuración en memoria y un historial en memoria,
   y muestra el error.
 

@@ -7,6 +7,7 @@
 //! - `preferences.ini`: formato INI de `GKeyFile`.
 //! - `accuracy.log_<teclado>`: errores por carácter (carácter, errores, aciertos).
 //! - `proficiency.log_<teclado>`: tiempo promedio por carácter (carácter, segundos, relativo).
+//! - `ksc/local_<xx>.ksc`: Top 10 local de un idioma, en binario (ver [`parse_ksc`]).
 //!
 //! Los números usan punto decimal (el original escribe con el locale `C`).
 
@@ -129,6 +130,99 @@ pub fn parse_proficiency_log(text: &str) -> Vec<(char, f64)> {
             (dt > 0.0).then_some((ch, dt))
         })
         .collect()
+}
+
+/// Una entrada del Top 10 en `local_<xx>.ksc`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KscEntry {
+    /// Dos letras del idioma.
+    pub lang: String,
+    /// Instante (segundos desde 1970).
+    pub when: i64,
+    /// Caracteres tecleados.
+    pub chars: u32,
+    /// Precisión (%).
+    pub accuracy: f64,
+    /// Velocidad (PPM).
+    pub wpm: f64,
+    /// Fluidez.
+    pub fluidity: f64,
+    /// Puntaje.
+    pub score: f64,
+    /// Nombre («Nombre [teclado]»).
+    pub name: String,
+}
+
+/// Lee un `.ksc` del original (`top10_read_stats_from_file`): hasta 10 registros con dos
+/// letras de idioma, `x` o `w`, el instante y los caracteres (`i32`), precisión, velocidad,
+/// fluidez y puntaje (`f32`), el largo del nombre (`i32`) y el nombre. Todo en el orden de
+/// bytes de la máquina que lo escribió; se asume little-endian, como en x86 y ARM. Se detiene
+/// en el primer registro dañado, como el original, y descarta los de relleno (`xxx`, puntaje 0).
+pub fn parse_ksc(bytes: &[u8]) -> Vec<KscEntry> {
+    let mut out = Vec::new();
+    let mut r = Reader { bytes, pos: 0 };
+    for _ in 0..10 {
+        let Some(entry) = r.ksc_entry() else { break };
+        if entry.when > 0 && entry.score > 0.0 {
+            out.push(entry);
+        }
+    }
+    out
+}
+
+struct Reader<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+
+impl Reader<'_> {
+    fn take(&mut self, n: usize) -> Option<&[u8]> {
+        let end = self.pos.checked_add(n)?;
+        let slice = self.bytes.get(self.pos..end)?;
+        self.pos = end;
+        Some(slice)
+    }
+
+    fn i32(&mut self) -> Option<i32> {
+        Some(i32::from_le_bytes(self.take(4)?.try_into().ok()?))
+    }
+
+    fn f32(&mut self) -> Option<f64> {
+        let v = f32::from_le_bytes(self.take(4)?.try_into().ok()?);
+        v.is_finite().then_some(f64::from(v))
+    }
+
+    fn ksc_entry(&mut self) -> Option<KscEntry> {
+        let head = self.take(3)?;
+        let (l0, l1, genv) = (head[0], head[1], head[2]);
+        if !l0.is_ascii_alphabetic() || !matches!(genv, b'x' | b'w') {
+            return None;
+        }
+        // Como el original: una segunda letra inválida es esperanto.
+        let lang = if l1.is_ascii_alphabetic() {
+            String::from_utf8_lossy(&[l0, l1]).into_owned()
+        } else {
+            "eo".to_owned()
+        };
+        let when = i64::from(self.i32()?);
+        let chars = u32::try_from(self.i32()?).ok()?;
+        let accuracy = self.f32().filter(|v| (0.0..=100.0).contains(v))?;
+        let wpm = self.f32().filter(|v| (0.0..=300.0).contains(v))?;
+        let fluidity = self.f32().filter(|v| (0.0..=100.0).contains(v))?;
+        let score = self.f32().filter(|v| (0.0..=20.0).contains(v))?;
+        let len = usize::try_from(self.i32()?).ok().filter(|&n| n <= 255)?;
+        let name = String::from_utf8_lossy(self.take(len)?).into_owned();
+        Some(KscEntry {
+            lang,
+            when,
+            chars,
+            accuracy,
+            wpm,
+            fluidity,
+            score,
+            name,
+        })
+    }
 }
 
 fn single_char(s: &str) -> Option<char> {
@@ -326,5 +420,35 @@ mod tests {
             parse_proficiency_log("k\t0.0\t1.0\n"),
             [] as [(char, f64); 0]
         );
+    }
+
+    fn ksc_record(lang: [u8; 2], when: i32, score: f32, name: &str) -> Vec<u8> {
+        let mut b = lang.to_vec();
+        b.push(b'x');
+        b.extend(when.to_le_bytes());
+        b.extend(600_i32.to_le_bytes());
+        for v in [97.5_f32, 45.0, 70.0, score] {
+            b.extend(v.to_le_bytes());
+        }
+        b.extend(i32::try_from(name.len()).unwrap_or(0).to_le_bytes());
+        b.extend(name.as_bytes());
+        b
+    }
+
+    #[test]
+    fn reads_ksc_files_and_skips_padding() {
+        let mut bytes = ksc_record(*b"es", 1_700_000_000, 6.5, "Ana [qwerty_es]");
+        bytes.extend(ksc_record(*b"xx", 0, 0.0, "xxx"));
+        bytes.extend(ksc_record(*b"es", 1_700_000_100, 4.0, "Luis"));
+        let entries = parse_ksc(&bytes);
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].lang, "es");
+        assert_eq!(entries[0].name, "Ana [qwerty_es]");
+        assert_eq!(entries[0].chars, 600);
+        assert!((entries[0].score - 6.5).abs() < 1e-6);
+        assert_eq!(entries[1].when, 1_700_000_100);
+        // Un archivo cortado se lee hasta donde está sano.
+        assert_eq!(parse_ksc(&bytes[..bytes.len() - 2]).len(), 1);
+        assert_eq!(parse_ksc(b"").len(), 0);
     }
 }

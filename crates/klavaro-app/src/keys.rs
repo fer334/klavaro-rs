@@ -137,7 +137,10 @@ impl Keys<'_> {
                     x,
                     row,
                     width: 1.0,
-                    finger: self.fingers.finger_at(pos),
+                    // Una posición vacía en esta distribución se dibuja neutra.
+                    finger: (!label.is_empty())
+                        .then(|| self.fingers.finger_at(pos))
+                        .flatten(),
                     label,
                     lit: target == Some(Target::Key(pos)),
                 });

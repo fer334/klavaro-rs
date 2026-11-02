@@ -38,6 +38,8 @@ pub(crate) enum Notice {
     Imported {
         /// Sesiones agregadas.
         sessions: usize,
+        /// Si además se aplicaron sus preferencias (sólo cuando no había `config.toml`).
+        preferences: bool,
     },
     /// Error de lectura o escritura.
     Error(String),
@@ -76,19 +78,32 @@ impl Profile {
         };
         let is_new = config.is_none();
         let mut config = config.unwrap_or_default();
+        // Antes de importar: una base importada con una versión anterior guardó horas locales.
+        let imported_before = history.meta(import::IMPORTED_KEY).ok().flatten().is_some();
+        if let Err(e) = import::utc_times_once(&mut history, !imported_before) {
+            fail(e);
+        }
         match import::import_once(&mut history, &paths::legacy_dirs()) {
             Ok(Some(report)) if !report.is_empty() => {
+                let preferences = is_new && report.preferences.is_some();
                 if is_new && let Some(prefs) = &report.preferences {
                     config = config.with_legacy(prefs);
                 }
                 notice.get_or_insert(Notice::Imported {
                     sessions: report.sessions,
+                    preferences,
                 });
             }
             Ok(_) => {}
             Err(e) => fail(e),
         }
         if let Err(e) = import::import_keys_once(&mut history, &paths::legacy_dirs()) {
+            notice.get_or_insert(Notice::Error(e.to_string()));
+        }
+        if let Err(e) = import::import_ranking_once(&mut history, &paths::legacy_dirs()) {
+            notice.get_or_insert(Notice::Error(e.to_string()));
+        }
+        if let Err(e) = import::normalize_languages_once(&mut history) {
             notice.get_or_insert(Notice::Error(e.to_string()));
         }
         let profile = Self {

@@ -138,8 +138,16 @@ pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 pub(crate) fn notice_text(tr: &Translator, n: &Notice) -> String {
     match n {
-        Notice::Imported { sessions } => {
-            tr.tr_args("notice-imported", &[("sessions", &sessions.to_string())])
+        Notice::Imported {
+            sessions,
+            preferences,
+        } => {
+            let key = if *preferences {
+                "notice-imported"
+            } else {
+                "notice-imported-sessions"
+            };
+            tr.tr_args(key, &[("sessions", &sessions.to_string())])
         }
         Notice::Error(e) => tr.tr_args("notice-error", &[("error", e)]),
     }

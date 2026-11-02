@@ -76,3 +76,5 @@ settings-beep = Pitido al equivocarse
 hint-left = { $finger } (mano izquierda)
 hint-right = { $finger } (mano derecha)
 hint-shift = Mayúsculas con la otra mano
+notice-imported-sessions = Se importaron { $sessions } sesiones del Klavaro original.
+progress-session-one = Última sesión · { $first }
