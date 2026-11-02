@@ -23,6 +23,8 @@ mod progress;
 mod settings;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod speech;
+#[cfg(feature = "gui")]
+mod style;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod tutor;
 

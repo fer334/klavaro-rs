@@ -8,8 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use iced::keyboard::{self, key::Named};
 use iced::widget::text::Span;
 use iced::widget::{
-    Space, button, canvas, checkbox, column, container, pick_list, rich_text, row, scrollable,
-    span, text, text_input, tooltip,
+    Space, button, canvas, checkbox, column, container, pick_list, progress_bar, rich_text, row,
+    scrollable, span, text, text_input, tooltip,
 };
 use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, Theme, event};
 
@@ -28,6 +28,7 @@ use crate::profile::Profile;
 use crate::progress::{Chart, ChartQuery, Metric};
 use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
+use crate::style;
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 
 /// Abre la ventana principal.
@@ -258,7 +259,7 @@ impl App {
     }
 
     fn theme(&self) -> Theme {
-        if self.dark { Theme::Dark } else { Theme::Light }
+        style::theme(self.dark)
     }
 
     // iced pide `Fn(&State)`.
@@ -626,14 +627,15 @@ impl App {
             Screen::Top10(entries) => self.view_top10(entries),
             Screen::Settings(form) => self.view_settings(form),
         };
-        let mut page = column![body].spacing(12).padding(24);
-        if let (Screen::Menu, Some(n)) = (&self.screen, &self.notice) {
-            page = page.push(text(n.clone()).size(14));
-        }
+        let mut page = column![].spacing(16);
         if let Some(e) = &self.error {
-            page = page.push(text(e.clone()).color(Color::from_rgb(0.8, 0.1, 0.1)));
+            page = page.push(banner(e.clone(), style::error_banner));
         }
-        container(page)
+        if let (Screen::Menu, Some(n)) = (&self.screen, &self.notice) {
+            page = page.push(banner(n.clone(), style::info_banner));
+        }
+        container(page.push(body))
+            .padding(24)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
@@ -641,94 +643,149 @@ impl App {
 
     fn view_menu<'a>(&'a self) -> Element<'a, Message> {
         let tr = &self.tr;
-        let modules = column(Module::ALL.iter().enumerate().map(|(i, &m)| {
+        let module_card = |i: usize, m: Module| -> Element<'a, Message> {
             let tip = format!("{}-tip", crate::exercise::module_key(m));
+            let number = container(text((i + 1).to_string()).size(18).font(style::BOLD))
+                .center(Length::Fixed(40.0))
+                .style(style::badge);
             button(
-                column![
-                    text(format!("{} - {}", i + 1, module_name(tr, m))).size(18),
-                    text(tr.tr(&tip)).size(12),
+                row![
+                    number,
+                    column![
+                        text(module_name(tr, m)).size(18).font(style::BOLD),
+                        text(tr.tr(&tip)).size(13).style(style::muted),
+                    ]
+                    .spacing(2),
                 ]
-                .spacing(2),
+                .spacing(14)
+                .align_y(Alignment::Center),
             )
-            .width(Length::Fixed(320.0))
-            .padding(10)
+            .width(Length::Fill)
+            .padding(16)
+            .style(style::module_card)
             .on_press(Message::Start(m))
             .into()
+        };
+        let modules = column(Module::ALL.chunks(2).enumerate().map(|(r, pair)| {
+            row(pair
+                .iter()
+                .enumerate()
+                .map(|(c, &m)| module_card(r * 2 + c, m)))
+            .spacing(12)
+            .into()
         }))
-        .spacing(8);
+        .spacing(12);
+
         let languages = ui_languages();
         let current = languages.iter().find(|l| l.code == tr.code()).cloned();
-        let interface = pick_list(languages, current, Message::InterfaceSelected);
+        let interface = pick_list(languages, current, Message::InterfaceSelected)
+            .width(Length::Fill)
+            .style(style::pick);
         let language = pick_list(
             self.languages.clone(),
             Some(self.language.clone()),
             Message::LanguageSelected,
-        );
+        )
+        .width(Length::Fill)
+        .style(style::pick);
         let keyboard = pick_list(
             self.keyboards.clone(),
             Some(self.keyboard.clone()),
             Message::KeyboardSelected,
+        )
+        .width(Length::Fill)
+        .style(style::pick);
+        let field = |label: &str,
+                     widget: Element<'a, Message>,
+                     tip: Option<String>|
+         -> Element<'a, Message> {
+            let mut field = column![
+                text(bare(&tr.tr(label))).size(13).style(style::muted),
+                widget
+            ]
+            .spacing(6)
+            .width(Length::Fill);
+            if let Some(tip) = tip {
+                field = field.push(text(tip).size(12).style(style::muted));
+            }
+            field.into()
+        };
+        let speech_tip = match self.audio.engine().map(Engine::name) {
+            Some(engine) => tr.tr_args("menu-speech-tip", &[("engine", &engine)]),
+            None => tr.tr("menu-speech-missing"),
+        };
+        let options = card(
+            column![
+                row![
+                    field("menu-interface-language", interface.into(), None),
+                    field(
+                        "menu-text-language",
+                        language.into(),
+                        Some(tr.tr("menu-text-language-tip"))
+                    ),
+                    field("menu-keyboard", keyboard.into(), None),
+                ]
+                .spacing(16),
+                tooltip(
+                    checkbox(self.profile.config.speech)
+                        .label(tr.tr("menu-speech"))
+                        .on_toggle(Message::ToggleSpeech),
+                    tip_box(speech_tip),
+                    tooltip::Position::Bottom,
+                ),
+            ]
+            .spacing(16),
         );
+
         let colors = button(text(tr.tr(if self.dark {
             "menu-colors-light"
         } else {
             "menu-colors-dark"
         })))
+        .style(style::ghost)
+        .padding([8, 12])
         .on_press(Message::ToggleTheme);
-        let speech_tip = match self.audio.engine().map(Engine::name) {
-            Some(engine) => tr.tr_args("menu-speech-tip", &[("engine", &engine)]),
-            None => tr.tr("menu-speech-missing"),
-        };
-        let labeled = |label: String, widget: Element<'a, Message>| {
-            row![text(label).width(Length::Fixed(110.0)), widget]
-                .spacing(8)
-                .align_y(Alignment::Center)
-        };
-        column![
-            text(tr.tr("app-name")).size(36),
-            text(tr.tr("app-tagline")).size(16),
-            modules,
-            labeled(tr.tr("menu-interface-language"), interface.into()),
-            labeled(tr.tr("menu-text-language"), language.into()),
-            text(tr.tr("menu-text-language-tip")).size(12),
-            labeled(tr.tr("menu-keyboard"), keyboard.into()),
+        let content = column![
             row![
-                button(text(tr.tr("menu-progress"))).on_press(Message::Progress(None)),
-                button(text(tr.tr("menu-top10"))).on_press(Message::Top10),
-                button(text(tr.tr("menu-settings"))).on_press(Message::Settings),
+                column![
+                    text(tr.tr("app-name")).size(32).font(style::BOLD),
+                    text(tr.tr("app-tagline")).size(15).style(style::muted),
+                ]
+                .spacing(4),
+                Space::new().width(Length::Fill),
                 colors,
             ]
+            .align_y(Alignment::Center),
+            modules,
+            options,
+            row![
+                action(tr.tr("menu-progress"), Message::Progress(None)),
+                action(tr.tr("menu-top10"), Message::Top10),
+                action(tr.tr("menu-settings"), Message::Settings),
+            ]
             .spacing(8),
-            tooltip(
-                checkbox(self.profile.config.speech)
-                    .label(tr.tr("menu-speech"))
-                    .on_toggle(Message::ToggleSpeech),
-                container(text(speech_tip).size(13)).padding(6),
-                tooltip::Position::Bottom,
-            ),
-            text(tr.tr("menu-shortcuts")).size(13),
+            text(tr.tr("menu-shortcuts")).size(12).style(style::muted),
         ]
-        .spacing(16)
-        .into()
+        .spacing(20)
+        .max_width(880);
+        scrollable(container(content).center_x(Length::Fill))
+            .height(Length::Fill)
+            .into()
     }
 
     fn view_tutor<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
         let tr = &self.tr;
         let spec = tutor.spec();
-        let mut header = row![
-            button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
-            text(format!(
-                "{} · {} · {}",
-                module_name(tr, spec.module),
-                spec.language,
-                self.keyboard
-            ))
-            .size(18),
-            button(text(tr.tr("tutor-new"))).on_press(Message::Restart),
-            button(text(tr.tr("menu-progress"))).on_press(Message::Progress(Some(spec.module))),
+        let heading = column![
+            text(module_name(tr, spec.module))
+                .size(20)
+                .font(style::BOLD),
+            text(format!("{} · {}", spec.language, self.keyboard))
+                .size(13)
+                .style(style::muted),
         ]
-        .spacing(12)
-        .align_y(Alignment::Center);
+        .spacing(2);
+        let mut actions: Vec<Element<'a, Message>> = Vec::new();
         // Como el original, el botón de la sesión especial aparece cuando conviene.
         if tutor.special_suggested().is_some() || tutor.special() {
             let label = tr.tr(if tutor.special() {
@@ -736,23 +793,31 @@ impl App {
             } else {
                 "tutor-special"
             });
-            header = header.push(tooltip(
-                button(text(label)).on_press(Message::ToggleSpecial),
-                container(text(tr.tr("tutor-special-tip")).size(13)).padding(6),
-                tooltip::Position::Bottom,
-            ));
-        }
-        if spec.module == Module::Basic {
-            header = header.push(
-                row![
-                    button(text("−")).on_press(Message::LessonDelta(-1)),
-                    text(tr.tr_args("tutor-lesson-n", &[("lesson", &spec.lesson.to_string())])),
-                    button(text("+")).on_press(Message::LessonDelta(1)),
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center),
+            actions.push(
+                tooltip(
+                    button(text(label))
+                        .style(style::chip(tutor.special()))
+                        .padding([8, 14])
+                        .on_press(Message::ToggleSpecial),
+                    tip_box(tr.tr("tutor-special-tip")),
+                    tooltip::Position::Bottom,
+                )
+                .into(),
             );
         }
+        if spec.module == Module::Basic {
+            actions.push(stepper(
+                tr.tr_args("tutor-lesson-n", &[("lesson", &spec.lesson.to_string())]),
+                Message::LessonDelta(-1),
+                Message::LessonDelta(1),
+            ));
+        }
+        actions.push(action(tr.tr("tutor-new"), Message::Restart));
+        actions.push(action(
+            tr.tr("menu-progress"),
+            Message::Progress(Some(spec.module)),
+        ));
+        let header = top_bar(tr, heading.into(), actions);
 
         let palette = Palette::new(self.dark);
         let spans: Vec<Span<'_, Message>> = tutor
@@ -760,46 +825,58 @@ impl App {
             .into_iter()
             .map(|s| styled_span(s, &palette))
             .collect();
-        let exercise = scrollable(
-            container(rich_text(spans).font(Font::MONOSPACE).size(24))
-                .padding(24)
+        let exercise = container(
+            scrollable(
+                container(
+                    rich_text(spans)
+                        .font(Font::MONOSPACE)
+                        .size(24)
+                        .line_height(1.5),
+                )
+                .padding([24, 32])
                 .width(Length::Fill),
+            )
+            .height(Length::Fill),
         )
-        .height(Length::Fill);
+        .height(Length::Fill)
+        .style(style::card);
 
         let footer: Element<'_, Message> = if let Some(o) = tutor.outcome() {
-            let mark = |ok: bool| if ok { palette.correct } else { palette.wrong };
-            let line = |label: &str, key: &str, v: f64| {
-                let value = tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
-                text(format!("{} {value}", tr.tr(label)))
-            };
-            let mut results = column![
-                line(
-                    "stats-elapsed",
-                    "stats-seconds",
-                    o.stats.elapsed.as_secs_f64()
+            let colors = style::Colors::new(self.dark);
+            let mark = |ok: bool| if ok { colors.success } else { colors.danger };
+            let value = |key: &str, v: f64| tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
+            let mut stats = vec![
+                stat(
+                    tr.tr("stats-elapsed"),
+                    value("stats-seconds", o.stats.elapsed.as_secs_f64()),
+                    None,
                 ),
-                line("stats-accuracy", "stats-percent", o.stats.accuracy)
-                    .color(mark(o.check.accuracy)),
-                line("stats-wpm", "stats-wpm-value", o.stats.wpm).color(mark(o.check.speed)),
-            ]
-            .spacing(4);
+                stat(
+                    tr.tr("stats-accuracy"),
+                    value("stats-percent", o.stats.accuracy),
+                    Some(mark(o.check.accuracy)),
+                ),
+                stat(
+                    tr.tr("stats-wpm"),
+                    value("stats-wpm-value", o.stats.wpm),
+                    Some(mark(o.check.speed)),
+                ),
+            ];
             if let Some(ok) = o.check.fluidity {
-                results = results.push(
-                    text(format!(
-                        "{} {:.1}",
-                        tr.tr("stats-fluidity"),
-                        o.stats.fluidity
-                    ))
-                    .color(mark(ok)),
-                );
+                stats.push(stat(
+                    tr.tr("stats-fluidity"),
+                    format!("{:.1}", o.stats.fluidity),
+                    Some(mark(ok)),
+                ));
             }
+            let mut comment =
+                column![text(comment_text(tr, o.comment)).size(17).font(style::BOLD)].spacing(4);
             if let Some(note) = &self.note {
-                results = results.push(text(note.clone()).size(14));
+                comment = comment.push(text(note.clone()).size(14));
             }
-            results
-                .push(text(comment_text(tr, o.comment)).size(18))
-                .push(text(tr.tr("tutor-end")).size(13))
+            comment = comment.push(text(tr.tr("tutor-end")).size(13).style(style::muted));
+            column![row(stats).spacing(12), card(comment)]
+                .spacing(12)
                 .into()
         } else {
             let (done, total) = tutor.progress();
@@ -808,23 +885,29 @@ impl App {
             } else {
                 "tutor-hint"
             };
+            let ratio = done as f32 / total.max(1) as f32;
             let (done, total) = (done.to_string(), total.to_string());
-            text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
-                .size(13)
-                .into()
+            column![
+                progress_bar(0.0..=1.0, ratio)
+                    .girth(6)
+                    .style(style::progress),
+                text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
+                    .size(13)
+                    .style(style::muted),
+            ]
+            .spacing(8)
+            .into()
         };
 
-        column![header, exercise, footer].spacing(12).into()
+        column![header, exercise, footer].spacing(16).into()
     }
+
     fn view_progress<'a>(&'a self, v: &'a ProgressView) -> Element<'a, Message> {
         let tr = &self.tr;
         let choice = |label: String, active: bool, msg: Message| {
             button(text(label))
-                .style(if active {
-                    button::primary
-                } else {
-                    button::secondary
-                })
+                .style(style::chip(active))
+                .padding([6, 14])
                 .on_press(msg)
         };
         let modules = row(Module::ALL.iter().map(|&m| {
@@ -851,8 +934,8 @@ impl App {
             Module::Basic | Module::Adaptability => self.keyboard.clone(),
             Module::Velocity | Module::Fluidity => self.language.clone(),
         };
-        let mut filters = row![text(scope).size(14)]
-            .spacing(8)
+        let mut filters = row![text(scope).size(13).style(style::muted)]
+            .spacing(12)
             .align_y(Alignment::Center);
         if v.module == Module::Basic {
             let lesson = if v.lesson == 0 {
@@ -860,15 +943,11 @@ impl App {
             } else {
                 tr.tr_args("tutor-lesson-n", &[("lesson", &v.lesson.to_string())])
             };
-            filters = filters.push(
-                row![
-                    button(text("−")).on_press(Message::ProgressLesson(-1)),
-                    text(lesson),
-                    button(text("+")).on_press(Message::ProgressLesson(1)),
-                ]
-                .spacing(6)
-                .align_y(Alignment::Center),
-            );
+            filters = filters.push(stepper(
+                lesson,
+                Message::ProgressLesson(-1),
+                Message::ProgressLesson(1),
+            ));
         }
 
         let chart = &v.chart;
@@ -890,10 +969,12 @@ impl App {
             ),
             _ => tr.tr("progress-empty"),
         };
-        let mut info = row![text(summary).size(13)].spacing(16);
+        let mut info = row![text(summary).size(13).style(style::muted)].spacing(16);
         if let Some(goal) = chart.goal {
             info = info.push(
-                text(tr.tr_args("progress-goal", &[("value", &format!("{goal:.0}"))])).size(13),
+                text(tr.tr_args("progress-goal", &[("value", &format!("{goal:.0}"))]))
+                    .size(13)
+                    .style(style::muted),
             );
         }
         let plot = Plot {
@@ -902,21 +983,19 @@ impl App {
         };
 
         column![
-            row![
-                button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
-                text(tr.tr("menu-progress")).size(22),
-                Space::new().width(Length::Fill),
-                button(text(tr.tr("menu-top10"))).on_press(Message::Top10),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-            modules,
+            top_bar(
+                tr,
+                page_title(tr.tr("menu-progress")),
+                [action(tr.tr("menu-top10"), Message::Top10)],
+            ),
+            row![modules, Space::new().width(Length::Fill), filters]
+                .spacing(12)
+                .align_y(Alignment::Center),
             metrics,
-            filters,
-            canvas(plot).width(Length::Fill).height(Length::Fill),
-            info,
+            card(column![canvas(plot).width(Length::Fill).height(Length::Fill), info].spacing(8))
+                .height(Length::Fill),
         ]
-        .spacing(10)
+        .spacing(14)
         .into()
     }
 
@@ -930,30 +1009,33 @@ impl App {
         let name = text_input("", &form.name)
             .on_input(Message::SettingsName)
             .on_submit(Message::SettingsSave)
-            .width(Length::Fixed(260.0));
+            .padding(8)
+            .width(Length::Fixed(280.0))
+            .style(style::input(false));
         let paragraphs = if form.paragraphs == 0 {
             tr.tr("settings-paragraphs-full")
         } else {
             form.paragraphs.to_string()
         };
-        let paragraphs = row![
-            button(text("−")).on_press(Message::SettingsParagraphs(-1)),
-            text(paragraphs).width(Length::Fixed(120.0)).center(),
-            button(text("+")).on_press(Message::SettingsParagraphs(1)),
-        ]
-        .spacing(6)
-        .align_y(Alignment::Center);
+        let paragraphs = stepper(
+            paragraphs,
+            Message::SettingsParagraphs(-1),
+            Message::SettingsParagraphs(1),
+        );
 
         let cell = 110.0;
         let fields = [GoalField::Accuracy, GoalField::Speed, GoalField::Fluidity];
         let header = row![Space::new().width(Length::Fixed(220.0))]
             .extend(fields.iter().map(|&f| {
                 text(goal_field_label(tr, f))
+                    .size(13)
+                    .style(style::muted)
                     .width(Length::Fixed(cell))
                     .into()
             }))
-            .spacing(8);
-        let mut goals = column![header].spacing(6);
+            .spacing(8)
+            .align_y(Alignment::End);
+        let mut goals = column![header].spacing(8);
         for module in Module::ALL {
             let input = form.goal(module);
             let mut line = row![text(module_name(tr, module)).width(Length::Fixed(220.0))]
@@ -961,22 +1043,13 @@ impl App {
                 .align_y(Alignment::Center);
             for field in fields {
                 let widget: Element<'a, Message> = match input.get(field) {
-                    Some(value) => {
-                        let invalid = form.is_invalid(module, field);
-                        text_input("", value)
-                            .on_input(move |v| Message::SettingsGoal(module, field, v))
-                            .on_submit(Message::SettingsSave)
-                            .width(Length::Fixed(cell))
-                            .style(move |theme: &Theme, status| {
-                                let mut style = text_input::default(theme, status);
-                                if invalid {
-                                    style.border.color = Color::from_rgb(0.8, 0.1, 0.1);
-                                    style.border.width = 2.0;
-                                }
-                                style
-                            })
-                            .into()
-                    }
+                    Some(value) => text_input("", value)
+                        .on_input(move |v| Message::SettingsGoal(module, field, v))
+                        .on_submit(Message::SettingsSave)
+                        .padding(8)
+                        .width(Length::Fixed(cell))
+                        .style(style::input(form.is_invalid(module, field)))
+                        .into(),
                     None => Space::new().width(Length::Fixed(cell)).into(),
                 };
                 line = line.push(widget);
@@ -984,91 +1057,244 @@ impl App {
             goals = goals.push(line);
         }
 
+        let save = button(text(tr.tr("settings-save")))
+            .style(style::primary)
+            .padding([8, 18])
+            .on_press(Message::SettingsSave);
         column![
-            row![
-                button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
-                text(tr.tr("menu-settings")).size(22),
-                Space::new().width(Length::Fill),
-                button(text(tr.tr("settings-save")))
-                    .style(button::primary)
-                    .on_press(Message::SettingsSave),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-            labeled(tr.tr("settings-name"), name.into()),
-            text(tr.tr("settings-name-tip")).size(12),
-            labeled(tr.tr("tutor-paragraphs"), paragraphs.into()),
-            checkbox(form.autostart)
-                .label(tr.tr("settings-autostart"))
-                .on_toggle(Message::SettingsAutostart),
-            checkbox(form.beep)
-                .label(tr.tr("settings-beep"))
-                .on_toggle(Message::SettingsBeep),
-            text(tr.tr("settings-goals")).size(18),
-            goals,
-            text(tr.tr("settings-goals-tip")).size(12),
-            button(text(tr.tr("settings-defaults"))).on_press(Message::SettingsDefaults),
+            top_bar(tr, page_title(tr.tr("menu-settings")), [save.into()]),
+            scrollable(
+                column![
+                    card(
+                        column![
+                            column![
+                                labeled(tr.tr("settings-name"), name.into()),
+                                text(tr.tr("settings-name-tip"))
+                                    .size(12)
+                                    .style(style::muted),
+                            ]
+                            .spacing(6),
+                            labeled(tr.tr("tutor-paragraphs"), paragraphs),
+                            checkbox(form.autostart)
+                                .label(tr.tr("settings-autostart"))
+                                .on_toggle(Message::SettingsAutostart),
+                            checkbox(form.beep)
+                                .label(tr.tr("settings-beep"))
+                                .on_toggle(Message::SettingsBeep),
+                        ]
+                        .spacing(16)
+                    ),
+                    card(
+                        column![
+                            text(tr.tr("settings-goals")).size(18).font(style::BOLD),
+                            goals,
+                            text(tr.tr("settings-goals-tip"))
+                                .size(12)
+                                .style(style::muted),
+                            button(text(tr.tr("settings-defaults")))
+                                .style(style::secondary)
+                                .padding([8, 14])
+                                .on_press(Message::SettingsDefaults),
+                        ]
+                        .spacing(14)
+                    ),
+                ]
+                .spacing(16)
+            )
+            .height(Length::Fill),
         ]
-        .spacing(14)
+        .spacing(16)
         .into()
     }
 
     fn view_top10<'a>(&'a self, entries: &'a [RankingEntry]) -> Element<'a, Message> {
         let tr = &self.tr;
-        let cell = |s: String, w: f32| text(s).width(Length::Fixed(w));
-        let header = row![
-            cell(tr.tr("ranking-place"), 32.0),
-            cell(tr.tr("ranking-name"), 240.0),
-            cell(tr.tr("stats-score"), 70.0),
-            cell(tr.tr("progress-accuracy"), 90.0),
-            cell(tr.tr("progress-speed"), 90.0),
-            cell(tr.tr("progress-fluidity"), 90.0),
-            cell(tr.tr("ranking-chars"), 90.0),
-            cell(tr.tr("ranking-when"), 150.0),
-        ]
-        .spacing(8);
-        let mut table = column![header].spacing(6);
+        let widths = [
+            Length::Fixed(32.0),
+            Length::Fill,
+            Length::Fixed(90.0),
+            Length::Fixed(90.0),
+            Length::Fixed(90.0),
+            Length::Fixed(90.0),
+            Length::Fixed(90.0),
+            Length::Fixed(140.0),
+        ];
+        let line = |cells: [Element<'a, Message>; 8]| {
+            row(cells
+                .into_iter()
+                .zip(widths)
+                .map(|(c, w)| container(c).width(w).into()))
+            .spacing(8)
+            .align_y(Alignment::Center)
+        };
+        let head = |key: &str| -> Element<'a, Message> {
+            text(tr.tr(key)).size(13).style(style::muted).into()
+        };
+        let header = line([
+            head("ranking-place"),
+            head("ranking-name"),
+            head("stats-score"),
+            head("progress-accuracy"),
+            head("progress-speed"),
+            head("progress-fluidity"),
+            head("ranking-chars"),
+            head("ranking-when"),
+        ]);
+        let mut table = column![container(header).padding([4, 10])].spacing(2);
         if entries.is_empty() {
-            table = table.push(text(tr.tr("ranking-empty")));
+            table = table.push(
+                container(text(tr.tr("ranking-empty")).style(style::muted))
+                    .center_x(Length::Fill)
+                    .padding(32),
+            );
         }
         for (i, e) in entries.iter().enumerate() {
-            table = table.push(
-                row![
-                    cell(format!("{}", i + 1), 32.0),
-                    cell(e.name.clone(), 240.0),
-                    cell(format!("{:.3}", e.score), 70.0),
-                    cell(format!("{:.1}", e.accuracy), 90.0),
-                    cell(format!("{:.1}", e.wpm), 90.0),
-                    cell(format!("{:.1}", e.fluidity), 90.0),
-                    cell(e.chars.to_string(), 90.0),
-                    cell(format_date_time(e.when), 150.0),
-                ]
-                .spacing(8),
-            );
+            let place = text(format!("{}", i + 1)).font(style::BOLD);
+            let entry = line([
+                place.into(),
+                text(e.name.clone()).into(),
+                text(format!("{:.3}", e.score)).font(style::BOLD).into(),
+                text(format!("{:.1}", e.accuracy)).into(),
+                text(format!("{:.1}", e.wpm)).into(),
+                text(format!("{:.1}", e.fluidity)).into(),
+                text(e.chars.to_string()).into(),
+                text(format_date_time(e.when))
+                    .size(13)
+                    .style(style::muted)
+                    .into(),
+            ]);
+            let mut entry = container(entry).padding([8, 10]);
+            if i % 2 == 0 {
+                entry = entry.style(style::stripe);
+            }
+            table = table.push(entry);
         }
         let language = pick_list(
             self.languages.clone(),
             Some(self.language.clone()),
             Message::LanguageSelected,
-        );
+        )
+        .style(style::pick);
         column![
-            row![
-                button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
-                text(tr.tr("menu-top10")).size(22),
-                Space::new().width(Length::Fill),
-                button(text(tr.tr("menu-progress")))
-                    .on_press(Message::Progress(Some(Module::Fluidity))),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
-            row![text(tr.tr("ranking-local")).size(16), language]
-                .spacing(12)
-                .align_y(Alignment::Center),
-            scrollable(table).height(Length::Fill),
+            top_bar(
+                tr,
+                page_title(tr.tr("menu-top10")),
+                [
+                    text(tr.tr("ranking-local"))
+                        .size(13)
+                        .style(style::muted)
+                        .into(),
+                    language.into(),
+                    action(
+                        tr.tr("menu-progress"),
+                        Message::Progress(Some(Module::Fluidity))
+                    ),
+                ],
+            ),
+            card(scrollable(table).height(Length::Shrink)),
         ]
-        .spacing(12)
+        .spacing(16)
         .into()
     }
+}
+
+/// Barra superior de cada pantalla: volver, título y acciones a la derecha.
+fn top_bar<'a>(
+    tr: &Translator,
+    title: Element<'a, Message>,
+    actions: impl IntoIterator<Item = Element<'a, Message>>,
+) -> Element<'a, Message> {
+    row![
+        button(text(format!("← {}", tr.tr("menu-back"))))
+            .style(style::ghost)
+            .padding([8, 12])
+            .on_press(Message::Back),
+        title,
+        Space::new().width(Length::Fill),
+    ]
+    .extend(actions)
+    .spacing(12)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// Título de una pantalla.
+fn page_title<'a>(title: String) -> Element<'a, Message> {
+    text(title).size(22).font(style::BOLD).into()
+}
+
+/// Botón secundario de una barra de acciones.
+fn action<'a>(label: String, message: Message) -> Element<'a, Message> {
+    button(text(label))
+        .style(style::secondary)
+        .padding([8, 14])
+        .on_press(message)
+        .into()
+}
+
+/// Valor con botones para bajarlo y subirlo (lección, párrafos).
+fn stepper<'a>(value: String, down: Message, up: Message) -> Element<'a, Message> {
+    let small = |label: &'static str, message: Message| {
+        button(text(label).center().width(Length::Fixed(14.0)))
+            .style(style::secondary)
+            .padding([6, 8])
+            .on_press(message)
+    };
+    row![
+        small("−", down),
+        text(value).center().width(Length::Fixed(110.0)),
+        small("+", up),
+    ]
+    .spacing(6)
+    .align_y(Alignment::Center)
+    .into()
+}
+
+/// Contenido envuelto en una tarjeta.
+fn card<'a>(content: impl Into<Element<'a, Message>>) -> iced::widget::Container<'a, Message> {
+    container(content)
+        .padding(20)
+        .width(Length::Fill)
+        .style(style::card)
+}
+
+/// Resultado del ejercicio: etiqueta arriba y valor grande, en el color de su meta.
+fn stat<'a>(label: String, value: String, color: Option<Color>) -> Element<'a, Message> {
+    let mut value = text(value).size(26).font(style::BOLD);
+    if let Some(color) = color {
+        value = value.color(color);
+    }
+    container(column![text(bare(&label)).size(13).style(style::muted), value].spacing(4))
+        .padding([12, 16])
+        .width(Length::Fill)
+        .style(style::card)
+        .into()
+}
+
+/// Aviso a lo ancho de la ventana.
+fn banner<'a>(
+    message: String,
+    style: fn(&Theme) -> iced::widget::container::Style,
+) -> Element<'a, Message> {
+    container(text(message).size(14))
+        .padding([10, 14])
+        .width(Length::Fill)
+        .style(style)
+        .into()
+}
+
+/// Recuadro de un `tooltip`.
+fn tip_box<'a>(tip: String) -> Element<'a, Message> {
+    container(text(tip).size(13))
+        .padding([8, 10])
+        .max_width(360)
+        .style(style::card)
+        .into()
+}
+
+/// Etiqueta sin los dos puntos finales («Teclado:» → «Teclado»), para ponerla sobre su campo.
+fn bare(label: &str) -> String {
+    label.trim_end_matches([':', '：', ' ']).to_owned()
 }
 
 /// Encabezado de una columna de metas, con su unidad.
@@ -1102,36 +1328,31 @@ fn metric_unit(tr: &Translator, m: Metric) -> String {
     }
 }
 
-/// Colores del texto del ejercicio.
+/// Colores del texto del ejercicio, tomados de los del tema.
 struct Palette {
     correct: Color,
     wrong: Color,
     wrong_bg: Color,
     retouched: Color,
+    cursor: Color,
     cursor_bg: Color,
     untouched: Color,
 }
 
 impl Palette {
     fn new(dark: bool) -> Self {
-        if dark {
-            Self {
-                correct: Color::from_rgb8(0x6c, 0xd6, 0x7c),
-                wrong: Color::from_rgb8(0xff, 0x6b, 0x6b),
-                wrong_bg: Color::from_rgb8(0x4a, 0x1c, 0x1c),
-                retouched: Color::from_rgb8(0xe0, 0xb0, 0x60),
-                cursor_bg: Color::from_rgb8(0x8a, 0x6b, 0xd6),
-                untouched: Color::from_rgb8(0xd8, 0xd8, 0xd8),
-            }
-        } else {
-            Self {
-                correct: Color::from_rgb8(0x22, 0x88, 0x22),
-                wrong: Color::from_rgb8(0xcc, 0x00, 0x33),
-                wrong_bg: Color::from_rgb8(0xfb, 0xe0, 0xe0),
-                retouched: Color::from_rgb8(0x88, 0x66, 0x00),
-                cursor_bg: Color::from_rgb8(0xff, 0x88, 0xff),
-                untouched: Color::from_rgb8(0x22, 0x22, 0x22),
-            }
+        let c = style::Colors::new(dark);
+        Self {
+            correct: c.success,
+            wrong: c.danger,
+            wrong_bg: Color {
+                a: 0.18,
+                ..c.danger
+            },
+            retouched: c.warning,
+            cursor: if dark { c.background } else { Color::WHITE },
+            cursor_bg: c.primary,
+            untouched: c.text,
         }
     }
 }
@@ -1143,7 +1364,7 @@ fn styled_span(segment: Segment, p: &Palette) -> Span<'static, Message> {
         SegmentStyle::Correct => s.color(p.correct),
         SegmentStyle::Wrong => s.color(p.wrong).background(p.wrong_bg),
         SegmentStyle::Retouched => s.color(p.retouched),
-        SegmentStyle::Cursor => s.color(Color::BLACK).background(p.cursor_bg),
+        SegmentStyle::Cursor => s.color(p.cursor).background(p.cursor_bg),
     }
 }
 
