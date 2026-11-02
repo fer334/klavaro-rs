@@ -1,28 +1,43 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Acceso a los datos de `assets/` (distribuciones, lecciones, palabras y párrafos).
 //!
-//! Por ahora se leen del disco: `KLAVARO_ASSETS` o la carpeta `assets/` del repositorio.
-//! Embeberlos en el binario queda para el empaquetado.
+//! Los datos van embebidos en el binario (ver `build.rs`), así el ejecutable funciona
+//! instalado en cualquier lugar. `KLAVARO_ASSETS` apunta a otra carpeta para usar datos
+//! propios o editados en lugar de los embebidos.
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use klavaro_core::generators::basic::LessonMask;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_data::{kbd, lessons, texts};
 
-/// Carpeta de datos.
-pub(crate) fn dir() -> PathBuf {
-    std::env::var_os("KLAVARO_ASSETS").map_or_else(
-        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets"),
-        PathBuf::from,
+include!(concat!(env!("OUT_DIR"), "/assets.rs"));
+
+/// Carpeta de datos indicada con `KLAVARO_ASSETS`, si la hay.
+pub(crate) fn dir() -> Option<PathBuf> {
+    std::env::var_os("KLAVARO_ASSETS").map(PathBuf::from)
+}
+
+/// De dónde salen los datos, para los mensajes de error.
+pub(crate) fn location() -> String {
+    dir().map_or_else(
+        || "(datos embebidos)".to_owned(),
+        |d| d.display().to_string(),
     )
 }
 
-/// Lee un archivo de texto de la carpeta de datos.
+/// Lee un archivo de texto de los datos.
 pub(crate) fn read(name: &str) -> io::Result<String> {
-    let path = dir().join(name);
+    let Some(dir) = dir() else {
+        return EMBEDDED
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, text)| (*text).to_owned())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, name.to_owned()));
+    };
+    let path = dir.join(name);
     fs::read_to_string(&path)
         .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))
 }
@@ -33,16 +48,23 @@ fn invalid(msg: impl Into<String>) -> io::Error {
 
 /// Nombres (sin extensión) de los archivos con una extensión dada, ordenados.
 pub(crate) fn names_with_ext(ext: &str) -> Vec<String> {
-    let mut out: Vec<String> = fs::read_dir(dir())
-        .map(|entries| {
-            entries
-                .filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|e| e == ext))
-                .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let suffix = format!(".{ext}");
+    let mut out: Vec<String> = match dir() {
+        None => EMBEDDED
+            .iter()
+            .filter_map(|(n, _)| n.strip_suffix(&suffix))
+            .map(str::to_owned)
+            .collect(),
+        Some(dir) => fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .filter_map(|e| e.file_name().into_string().ok())
+                    .filter_map(|n| n.strip_suffix(&suffix).map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
     out.sort();
     out
 }
@@ -89,5 +111,13 @@ mod tests {
         assert!(languages().contains(&"es".to_owned()));
         assert!(keyboard("qwerty_us").is_ok());
         assert!(keyboard("no_existe").is_err());
+    }
+
+    #[test]
+    fn embeds_every_asset() {
+        let on_disk = fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets"))
+            .map_or(0, |d| d.filter_map(Result::ok).count());
+        assert_eq!(EMBEDDED.len(), on_disk);
+        assert!(read("basic_lessons.txt").is_ok_and(|t| !t.trim().is_empty()));
     }
 }

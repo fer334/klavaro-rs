@@ -106,3 +106,19 @@ sesiones (`DATA_POINTS`).
 `assets/` contiene los datos del original (GPL-3.0-or-later): 77 distribuciones `.kbd`,
 listas `.words` y `.paragraphs` por idioma, `basic_lessons.txt` y `fingers_position.txt`.
 `crates/klavaro-data/tests/assets.rs` verifica que todo se lea y genere ejercicios.
+
+El `build.rs` de `klavaro-app` los embebe en el binario con `include_str!` (unos 1,7 MB), así
+el ejecutable funciona instalado en cualquier lugar. `KLAVARO_ASSETS` los reemplaza por los de
+otra carpeta.
+
+## Empaquetado
+
+- `tools/package.sh [TRIPLE]` compila en release (LTO, `strip`) y arma en `dist/` el paquete
+  del sistema: `.app` en un `.zip` (macOS, ícono `.icns` generado con `sips` e `iconutil`),
+  `.tar.gz` con `bin/` y `share/` (Linux) o `.zip` con el `.exe` (Windows).
+- `packaging/` tiene el ícono del original (SVG y PNG de 256 px), el `.desktop` y el
+  `Info.plist`.
+- `.github/workflows/release.yml` corre el script en Linux, macOS (ARM e Intel) y Windows y,
+  con una etiqueta `v*`, crea un borrador de release con los paquetes y `SHA256SUMS`.
+- Pendiente: firma y notarización en macOS, ícono del `.exe` y ventana sin consola en
+  Windows, y paquetes de distribución (Flatpak, `.deb`).

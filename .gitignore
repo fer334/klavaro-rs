@@ -4,3 +4,4 @@
 .DS_Store
 # Código original de referencia (se descarga aparte, no se versiona)
 /upstream/
+/dist

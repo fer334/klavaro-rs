@@ -99,14 +99,24 @@ fn beep_command() -> Option<Command> {
     }
 }
 
-/// Busca un ejecutable en el `PATH`.
+/// Carpetas que se revisan además del `PATH`: una app abierta desde el Finder de macOS
+/// recibe un `PATH` mínimo, sin las carpetas de Homebrew.
+const EXTRA_DIRS: &[&str] = if cfg!(target_os = "macos") {
+    &["/opt/homebrew/bin", "/usr/local/bin"]
+} else {
+    &[]
+};
+
+/// Busca un ejecutable en el `PATH` (y en [`EXTRA_DIRS`]).
 fn find(name: &str) -> Option<PathBuf> {
     let exe = if cfg!(windows) {
         format!("{name}.exe")
     } else {
         name.to_owned()
     };
-    env::split_paths(&env::var_os("PATH")?)
+    let path = env::var_os("PATH").unwrap_or_default();
+    env::split_paths(&path)
+        .chain(EXTRA_DIRS.iter().map(PathBuf::from))
         .map(|dir| dir.join(&exe))
         .find(|p| p.is_file())
 }

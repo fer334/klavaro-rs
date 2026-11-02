@@ -3,13 +3,15 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fase 8. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
+> Estado: fase 9. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
 > guarda la configuración, el historial y el Top 10 de Fluidez, importa la primera vez los
 > datos del Klavaro original, muestra los textos en los 40 idiomas del original y tiene
 > gráficos de progreso y la tabla del Top 10 (teclas P y T en el menú). Rastrea errores y
 > tiempos por tecla, con sus gráficos y la sesión especial de Adaptabilidad. Las preferencias
 > (nombre del Top 10, párrafos de Fluidez, inicio automático, pitido y metas) se editan en
-> pantalla. Modo dictado con espeak (o `say` en macOS) y pitido al equivocarse. También hay una práctica alternativa en la terminal:
+> pantalla. Modo dictado con espeak (o `say` en macOS) y pitido al equivocarse. Hay paquetes
+> para macOS, Linux y Windows (ver «Instalación»). También hay una práctica alternativa en la
+> terminal:
 >
 > ```sh
 > cargo run                                   # abre la ventana
@@ -47,6 +49,21 @@ Ver [ARCHITECTURE.md](ARCHITECTURE.md).
 `KLAVARO_HOME=carpeta` guarda todo en esa carpeta (modo portátil y pruebas). Al abrir por
 primera vez se importan `preferences.ini`, `stat_*.txt` y `scores_fluid.txt` del Klavaro
 original (`~/.config/klavaro` y `~/.local/share/klavaro`), una sola vez.
+
+## Instalación
+
+Los paquetes salen de `tools/package.sh` (en `dist/`) o del workflow `Release` al subir una
+etiqueta `v*`. Los datos de `assets/` van dentro del ejecutable; no hace falta instalarlos
+aparte (`KLAVARO_ASSETS=carpeta` usa otros datos en su lugar).
+
+- **macOS**: descomprimir el `.zip` y mover `klavaro-rs.app` a Aplicaciones. No está firmada:
+  la primera vez, clic derecho → Abrir.
+- **Linux**: descomprimir el `.tar.gz` y copiar `bin/` y `share/` a `~/.local/` (o a
+  `/usr/local/`). Incluye el `.desktop` y el ícono.
+- **Windows**: descomprimir el `.zip` y abrir `klavaro-rs.exe`. Se abre también una consola,
+  que usa la práctica en la terminal.
+
+Para el modo dictado hace falta `espeak-ng` o `espeak` (en macOS alcanza con `say`).
 
 ## Desarrollo
 

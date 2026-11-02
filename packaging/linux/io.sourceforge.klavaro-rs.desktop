@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=klavaro-rs
+GenericName=Touch typing tutor
+GenericName[es]=Tutor de mecanografía
+Comment=A very flexible and efficient touch typing tutor.
+Comment[es]=Un tutor de mecanografía muy flexible y eficiente.
+Exec=klavaro-rs
+Icon=klavaro-rs
+Terminal=false
+Categories=Education;GTK;
+Keywords=keyboard;typing;tutor;CAI;
+Keywords[es]=teclado;mecanografía;tutor;

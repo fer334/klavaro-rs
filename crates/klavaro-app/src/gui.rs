@@ -154,7 +154,7 @@ impl App {
             .clone()
             .unwrap_or_else(|| ui.to_owned());
         let error = keyboards.is_empty().then(|| {
-            let dir = assets::dir().display().to_string();
+            let dir = assets::location();
             tr.tr_args("error-no-data", &[("dir", &dir)])
         });
         let mut app = Self {
@@ -676,6 +676,45 @@ impl App {
         }))
         .spacing(12);
 
+        let colors = button(text(tr.tr(if self.dark {
+            "menu-colors-light"
+        } else {
+            "menu-colors-dark"
+        })))
+        .style(style::ghost)
+        .padding([8, 12])
+        .on_press(Message::ToggleTheme);
+        let content = column![
+            row![
+                column![
+                    text(tr.tr("app-name")).size(32).font(style::BOLD),
+                    text(tr.tr("app-tagline")).size(15).style(style::muted),
+                ]
+                .spacing(4),
+                Space::new().width(Length::Fill),
+                colors,
+            ]
+            .align_y(Alignment::Center),
+            modules,
+            self.menu_options(),
+            row![
+                action(tr.tr("menu-progress"), Message::Progress(None)),
+                action(tr.tr("menu-top10"), Message::Top10),
+                action(tr.tr("menu-settings"), Message::Settings),
+            ]
+            .spacing(8),
+            text(tr.tr("menu-shortcuts")).size(12).style(style::muted),
+        ]
+        .spacing(20)
+        .max_width(880);
+        scrollable(container(content).center_x(Length::Fill))
+            .height(Length::Fill)
+            .into()
+    }
+
+    /// Tarjeta del menú con los idiomas, el teclado y el modo dictado.
+    fn menu_options<'a>(&'a self) -> Element<'a, Message> {
+        let tr = &self.tr;
         let languages = ui_languages();
         let current = languages.iter().find(|l| l.code == tr.code()).cloned();
         let interface = pick_list(languages, current, Message::InterfaceSelected)
@@ -714,7 +753,7 @@ impl App {
             Some(engine) => tr.tr_args("menu-speech-tip", &[("engine", &engine)]),
             None => tr.tr("menu-speech-missing"),
         };
-        let options = card(
+        card(
             column![
                 row![
                     field("menu-interface-language", interface.into(), None),
@@ -735,42 +774,8 @@ impl App {
                 ),
             ]
             .spacing(16),
-        );
-
-        let colors = button(text(tr.tr(if self.dark {
-            "menu-colors-light"
-        } else {
-            "menu-colors-dark"
-        })))
-        .style(style::ghost)
-        .padding([8, 12])
-        .on_press(Message::ToggleTheme);
-        let content = column![
-            row![
-                column![
-                    text(tr.tr("app-name")).size(32).font(style::BOLD),
-                    text(tr.tr("app-tagline")).size(15).style(style::muted),
-                ]
-                .spacing(4),
-                Space::new().width(Length::Fill),
-                colors,
-            ]
-            .align_y(Alignment::Center),
-            modules,
-            options,
-            row![
-                action(tr.tr("menu-progress"), Message::Progress(None)),
-                action(tr.tr("menu-top10"), Message::Top10),
-                action(tr.tr("menu-settings"), Message::Settings),
-            ]
-            .spacing(8),
-            text(tr.tr("menu-shortcuts")).size(12).style(style::muted),
-        ]
-        .spacing(20)
-        .max_width(880);
-        scrollable(container(content).center_x(Length::Fill))
-            .height(Length::Fill)
-            .into()
+        )
+        .into()
     }
 
     fn view_tutor<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
@@ -841,30 +846,39 @@ impl App {
         .height(Length::Fill)
         .style(style::card);
 
-        let footer: Element<'_, Message> = if let Some(o) = tutor.outcome() {
+        column![header, exercise, self.tutor_footer(tutor)]
+            .spacing(16)
+            .into()
+    }
+
+    /// Pie del ejercicio: avance mientras se teclea, resultados al terminar.
+    fn tutor_footer<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let spec = tutor.spec();
+        if let Some(o) = tutor.outcome() {
             let colors = style::Colors::new(self.dark);
             let mark = |ok: bool| if ok { colors.success } else { colors.danger };
             let value = |key: &str, v: f64| tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
             let mut stats = vec![
                 stat(
-                    tr.tr("stats-elapsed"),
+                    &tr.tr("stats-elapsed"),
                     value("stats-seconds", o.stats.elapsed.as_secs_f64()),
                     None,
                 ),
                 stat(
-                    tr.tr("stats-accuracy"),
+                    &tr.tr("stats-accuracy"),
                     value("stats-percent", o.stats.accuracy),
                     Some(mark(o.check.accuracy)),
                 ),
                 stat(
-                    tr.tr("stats-wpm"),
+                    &tr.tr("stats-wpm"),
                     value("stats-wpm-value", o.stats.wpm),
                     Some(mark(o.check.speed)),
                 ),
             ];
             if let Some(ok) = o.check.fluidity {
                 stats.push(stat(
-                    tr.tr("stats-fluidity"),
+                    &tr.tr("stats-fluidity"),
                     format!("{:.1}", o.stats.fluidity),
                     Some(mark(ok)),
                 ));
@@ -897,9 +911,7 @@ impl App {
             ]
             .spacing(8)
             .into()
-        };
-
-        column![header, exercise, footer].spacing(16).into()
+        }
     }
 
     fn view_progress<'a>(&'a self, v: &'a ProgressView) -> Element<'a, Message> {
@@ -1023,40 +1035,6 @@ impl App {
             Message::SettingsParagraphs(1),
         );
 
-        let cell = 110.0;
-        let fields = [GoalField::Accuracy, GoalField::Speed, GoalField::Fluidity];
-        let header = row![Space::new().width(Length::Fixed(220.0))]
-            .extend(fields.iter().map(|&f| {
-                text(goal_field_label(tr, f))
-                    .size(13)
-                    .style(style::muted)
-                    .width(Length::Fixed(cell))
-                    .into()
-            }))
-            .spacing(8)
-            .align_y(Alignment::End);
-        let mut goals = column![header].spacing(8);
-        for module in Module::ALL {
-            let input = form.goal(module);
-            let mut line = row![text(module_name(tr, module)).width(Length::Fixed(220.0))]
-                .spacing(8)
-                .align_y(Alignment::Center);
-            for field in fields {
-                let widget: Element<'a, Message> = match input.get(field) {
-                    Some(value) => text_input("", value)
-                        .on_input(move |v| Message::SettingsGoal(module, field, v))
-                        .on_submit(Message::SettingsSave)
-                        .padding(8)
-                        .width(Length::Fixed(cell))
-                        .style(style::input(form.is_invalid(module, field)))
-                        .into(),
-                    None => Space::new().width(Length::Fixed(cell)).into(),
-                };
-                line = line.push(widget);
-            }
-            goals = goals.push(line);
-        }
-
         let save = button(text(tr.tr("settings-save")))
             .style(style::primary)
             .padding([8, 18])
@@ -1087,7 +1065,7 @@ impl App {
                     card(
                         column![
                             text(tr.tr("settings-goals")).size(18).font(style::BOLD),
-                            goals,
+                            goals_table(tr, form),
                             text(tr.tr("settings-goals-tip"))
                                 .size(12)
                                 .style(style::muted),
@@ -1259,12 +1237,12 @@ fn card<'a>(content: impl Into<Element<'a, Message>>) -> iced::widget::Container
 }
 
 /// Resultado del ejercicio: etiqueta arriba y valor grande, en el color de su meta.
-fn stat<'a>(label: String, value: String, color: Option<Color>) -> Element<'a, Message> {
+fn stat<'a>(label: &str, value: String, color: Option<Color>) -> Element<'a, Message> {
     let mut value = text(value).size(26).font(style::BOLD);
     if let Some(color) = color {
         value = value.color(color);
     }
-    container(column![text(bare(&label)).size(13).style(style::muted), value].spacing(4))
+    container(column![text(bare(label)).size(13).style(style::muted), value].spacing(4))
         .padding([12, 16])
         .width(Length::Fill)
         .style(style::card)
@@ -1295,6 +1273,44 @@ fn tip_box<'a>(tip: String) -> Element<'a, Message> {
 /// Etiqueta sin los dos puntos finales («Teclado:» → «Teclado»), para ponerla sobre su campo.
 fn bare(label: &str) -> String {
     label.trim_end_matches([':', '：', ' ']).to_owned()
+}
+
+/// Tabla de metas de Preferencias: una fila por módulo y una columna por medida.
+fn goals_table<'a>(tr: &Translator, form: &'a SettingsForm) -> Element<'a, Message> {
+    let cell = 110.0;
+    let fields = [GoalField::Accuracy, GoalField::Speed, GoalField::Fluidity];
+    let header = row![Space::new().width(Length::Fixed(220.0))]
+        .extend(fields.iter().map(|&f| {
+            text(goal_field_label(tr, f))
+                .size(13)
+                .style(style::muted)
+                .width(Length::Fixed(cell))
+                .into()
+        }))
+        .spacing(8)
+        .align_y(Alignment::End);
+    let mut goals = column![header].spacing(8);
+    for module in Module::ALL {
+        let input = form.goal(module);
+        let mut line = row![text(module_name(tr, module)).width(Length::Fixed(220.0))]
+            .spacing(8)
+            .align_y(Alignment::Center);
+        for field in fields {
+            let widget: Element<'a, Message> = match input.get(field) {
+                Some(value) => text_input("", value)
+                    .on_input(move |v| Message::SettingsGoal(module, field, v))
+                    .on_submit(Message::SettingsSave)
+                    .padding(8)
+                    .width(Length::Fixed(cell))
+                    .style(style::input(form.is_invalid(module, field)))
+                    .into(),
+                None => Space::new().width(Length::Fixed(cell)).into(),
+            };
+            line = line.push(widget);
+        }
+        goals = goals.push(line);
+    }
+    goals.into()
 }
 
 /// Encabezado de una columna de metas, con su unidad.
