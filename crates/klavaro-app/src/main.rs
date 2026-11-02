@@ -7,6 +7,8 @@
 // Parte de estos módulos sólo la usa la interfaz gráfica.
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod assets;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod audio;
 mod exercise;
 #[cfg(feature = "gui")]
 mod gui;
@@ -19,6 +21,8 @@ mod profile;
 mod progress;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod settings;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod speech;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod tutor;
 

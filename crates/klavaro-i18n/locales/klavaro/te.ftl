@@ -3,3 +3,4 @@
 
 menu-keyboard = కీబోర్డ్‍ :
 menu-language = భాష(L)
+menu-speech = శబ్దం

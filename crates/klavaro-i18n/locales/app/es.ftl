@@ -70,3 +70,6 @@ settings-defaults = Metas por defecto
 settings-save = Guardar
 settings-saved = Preferencias guardadas.
 settings-invalid = Revise los campos en rojo: la precisión y la fluidez van de 0 a 100, la velocidad de 0 a 200.
+menu-speech-tip = Modo dictado: dice cada tecla o palabra antes de teclearla (con { $engine }).
+menu-speech-missing = El modo dictado necesita espeak o espeak-ng instalado (en macOS también sirve say).
+settings-beep = Pitido al equivocarse

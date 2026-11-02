@@ -22,6 +22,7 @@ stats-comments = Comments:
 stats-score = Score
 progress-accuracy = Accuracy
 progress-wpm-unit = (WPM)
+speech-voice = en
 ranking-chars = Chars
 ranking-when = When
 ranking-local = Local scores

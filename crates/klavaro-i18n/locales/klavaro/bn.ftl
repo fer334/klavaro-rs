@@ -23,6 +23,7 @@ stats-comments = মন্তব্য:
 stats-score = স্কোর
 progress-accuracy = নির্ভুলতা
 progress-wpm-unit = (WPM)
+speech-voice = bn
 ranking-chars = ক্যারেক্টার
 ranking-when = কখন
 ranking-local = স্থানীয় স্কোর

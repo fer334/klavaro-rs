@@ -21,11 +21,13 @@ use klavaro_i18n::Translator;
 use klavaro_store::date::format_date_time;
 
 use crate::assets;
+use crate::audio::{Audio, Engine};
 use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, recorded_text};
 use crate::plot::Plot;
 use crate::profile::Profile;
 use crate::progress::{Chart, ChartQuery, Metric};
 use crate::settings::{GoalField, SettingsForm};
+use crate::speech::{Say, spoken};
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 
 /// Abre la ventana principal.
@@ -94,6 +96,9 @@ struct App {
     /// Errores y tiempos por tecla del teclado elegido. Durante un ejercicio, el tutor tiene
     /// la copia al día ([`App::leave_tutor`] la recupera).
     tracker: KeyTracker,
+    audio: Audio,
+    /// Posición del último dictado (ejercicio y cursor), para no repetirlo.
+    dictated: Option<(u32, usize)>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +114,8 @@ enum Message {
     ToggleTheme,
     /// Activa o desactiva la sesión especial de Adaptabilidad.
     ToggleSpecial,
+    /// Activa o desactiva el modo dictado.
+    ToggleSpeech(bool),
     /// Abre el progreso del módulo (o del último usado).
     Progress(Option<Module>),
     ProgressMetric(Metric),
@@ -118,6 +125,7 @@ enum Message {
     SettingsName(String),
     SettingsParagraphs(i32),
     SettingsAutostart(bool),
+    SettingsBeep(bool),
     SettingsGoal(Module, GoalField, String),
     SettingsDefaults,
     SettingsSave,
@@ -167,6 +175,8 @@ impl App {
             clock: Instant::now(),
             profile,
             tracker: KeyTracker::new(),
+            audio: Audio::new(Engine::detect()),
+            dictated: None,
         };
         app.load_tracker();
         if app.profile.config.autostart
@@ -340,6 +350,8 @@ impl App {
             m @ (Message::SettingsName(_)
             | Message::SettingsParagraphs(_)
             | Message::SettingsAutostart(_)
+            | Message::SettingsBeep(_)
+            | Message::ToggleSpeech(_)
             | Message::SettingsGoal(..)
             | Message::SettingsDefaults
             | Message::SettingsSave) => {
@@ -351,6 +363,7 @@ impl App {
         if let Err(e) = result {
             self.error = Some(e.to_string());
         }
+        self.dictate();
         Task::none()
     }
 
@@ -385,11 +398,42 @@ impl App {
         }
     }
 
-    /// Mensajes del formulario de preferencias.
-    fn update_settings(&mut self, message: Message) {
-        if matches!(message, Message::SettingsSave) {
-            self.save_settings();
+    /// Dicta lo que toca teclear si cambió desde el último dictado (modo dictado).
+    fn dictate(&mut self) {
+        let next = match &self.screen {
+            Screen::Tutor(t) if self.profile.config.speech => t.dictation(),
+            _ => None,
+        };
+        let Some((at, say)) = next else {
+            if self.dictated.take().is_some() {
+                self.audio.hush();
+            }
             return;
+        };
+        if self.dictated == Some(at) {
+            return;
+        }
+        self.dictated = Some(at);
+        // El original usa las dos primeras letras del código del idioma de la interfaz.
+        let voice: String = self.tr.tr("speech-voice").chars().take(2).collect();
+        let punct = matches!(say, Say::Char(_))
+            || matches!(&self.screen, Screen::Tutor(t) if t.spec().module == Module::Velocity);
+        self.audio.say(&voice, &spoken(&self.tr, &say), punct);
+    }
+
+    /// Mensajes del formulario de preferencias (y el modo dictado del menú).
+    fn update_settings(&mut self, message: Message) {
+        match message {
+            Message::SettingsSave => {
+                self.save_settings();
+                return;
+            }
+            Message::ToggleSpeech(on) => {
+                self.profile.config.speech = on;
+                self.persist();
+                return;
+            }
+            _ => {}
         }
         let Screen::Settings(f) = &mut self.screen else {
             return;
@@ -398,6 +442,7 @@ impl App {
             Message::SettingsName(name) => f.name = name,
             Message::SettingsParagraphs(delta) => f.add_paragraphs(delta),
             Message::SettingsAutostart(on) => f.autostart = on,
+            Message::SettingsBeep(on) => f.beep = on,
             Message::SettingsGoal(module, field, value) => f.set_goal(module, field, value),
             Message::SettingsDefaults => f.default_goals(),
             _ => {}
@@ -512,6 +557,9 @@ impl App {
             Screen::Tutor(t) => {
                 let was_done = t.outcome().is_some();
                 let effect = t.handle(input, self.clock.elapsed())?;
+                if effect.beep && self.profile.config.beep {
+                    self.audio.beep();
+                }
                 if was_done && t.outcome().is_none() {
                     self.note = None;
                 }
@@ -627,6 +675,10 @@ impl App {
             "menu-colors-dark"
         })))
         .on_press(Message::ToggleTheme);
+        let speech_tip = match self.audio.engine().map(Engine::name) {
+            Some(engine) => tr.tr_args("menu-speech-tip", &[("engine", &engine)]),
+            None => tr.tr("menu-speech-missing"),
+        };
         let labeled = |label: String, widget: Element<'a, Message>| {
             row![text(label).width(Length::Fixed(110.0)), widget]
                 .spacing(8)
@@ -647,6 +699,13 @@ impl App {
                 colors,
             ]
             .spacing(8),
+            tooltip(
+                checkbox(self.profile.config.speech)
+                    .label(tr.tr("menu-speech"))
+                    .on_toggle(Message::ToggleSpeech),
+                container(text(speech_tip).size(13)).padding(6),
+                tooltip::Position::Bottom,
+            ),
             text(tr.tr("menu-shortcuts")).size(13),
         ]
         .spacing(16)
@@ -942,6 +1001,9 @@ impl App {
             checkbox(form.autostart)
                 .label(tr.tr("settings-autostart"))
                 .on_toggle(Message::SettingsAutostart),
+            checkbox(form.beep)
+                .label(tr.tr("settings-beep"))
+                .on_toggle(Message::SettingsBeep),
             text(tr.tr("settings-goals")).size(18),
             goals,
             text(tr.tr("settings-goals-tip")).size(12),

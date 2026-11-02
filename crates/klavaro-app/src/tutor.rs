@@ -17,6 +17,7 @@ use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
 
 use crate::exercise::{self, ExerciseSpec};
+use crate::speech::{self, Say};
 
 /// Tecla especial, ya separada del framework de interfaz.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -139,6 +140,8 @@ pub(crate) struct Tutor {
     tracker: KeyTracker,
     /// Adaptabilidad con palabras que insisten en las teclas débiles.
     special: bool,
+    /// Cuántos ejercicios se generaron (para saber si cambió el texto).
+    generation: u32,
 }
 
 impl Tutor {
@@ -162,6 +165,7 @@ impl Tutor {
             seed,
             tracker,
             special: false,
+            generation: 0,
         })
     }
 
@@ -209,6 +213,17 @@ impl Tutor {
         self.session.target().iter().collect()
     }
 
+    /// Qué dictar ahora (nada si terminó) y en qué posición: el número de ejercicio y el
+    /// cursor, para no repetir el mismo dictado.
+    pub(crate) fn dictation(&self) -> Option<((u32, usize), Say)> {
+        if self.outcome.is_some() {
+            return None;
+        }
+        let cursor = self.session.cursor();
+        speech::utterance(self.spec.module, self.session.target(), cursor)
+            .map(|say| ((self.generation, cursor), say))
+    }
+
     /// Avance: caracteres tecleados y total.
     pub(crate) fn progress(&self) -> (usize, usize) {
         (self.session.cursor(), self.session.target().len())
@@ -216,6 +231,7 @@ impl Tutor {
 
     /// Genera un ejercicio nuevo con la misma configuración.
     pub(crate) fn restart(&mut self) -> io::Result<()> {
+        self.generation = self.generation.wrapping_add(1);
         self.seed = self
             .seed
             .wrapping_mul(6_364_136_223_846_793_005)
@@ -526,5 +542,19 @@ mod tests {
         assert!(t.special());
         assert!(t.text().matches('z').count() > plain);
         assert!(tutor(Module::Velocity).special_suggested().is_none());
+    }
+
+    #[test]
+    fn dictation_follows_the_cursor_and_the_exercise() {
+        let mut t = tutor(Module::Adaptability);
+        let first = t.text().chars().next().expect("texto");
+        let (at, say) = t.dictation().expect("dictado");
+        assert_eq!(at, (0, 0));
+        assert_eq!(say, Say::Char(first));
+        t.handle(Input::Char(first), Duration::ZERO).expect("tecla");
+        assert_eq!(t.dictation().map(|d| d.0), Some((0, 1)));
+        t.restart().expect("nuevo");
+        assert_eq!(t.dictation().map(|d| d.0), Some((1, 0)));
+        assert!(tutor(Module::Fluidity).dictation().is_none());
     }
 }

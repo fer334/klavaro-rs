@@ -62,9 +62,21 @@ klavaro-app ──► klavaro-i18n
 - `settings.rs` (app, sin iced) es el formulario: los números se editan como texto y se
   validan al guardar con los rangos de `Config::sanitized` (acepta coma decimal). Los
   campos inválidos se marcan y no se guarda nada hasta corregirlos.
-- Se editan el nombre del Top 10, los párrafos de Fluidez, el inicio automático y la
-  precisión, velocidad y fluidez de cada meta. Los niveles de los comentarios, la voz y el
-  sonido siguen sólo en `config.toml` (la voz y el sonido todavía no están implementados).
+- Se editan el nombre del Top 10, los párrafos de Fluidez, el inicio automático, el pitido
+  y la precisión, velocidad y fluidez de cada meta. Los niveles de los comentarios siguen
+  sólo en `config.toml`; el modo dictado se activa en el menú, como en el original.
+
+## Dictado y pitido
+
+- `speech.rs` (app, sin iced) decide qué decir, como `tutor_speak_char` y
+  `tutor_speak_word`: el carácter en Básico y Adaptabilidad (espacio, intro, comillas… por
+  su nombre traducido), la palabra siguiente en Velocidad, nada en Fluidez. El dictado del
+  dedo a los 3 s del curso básico no está implementado.
+- `audio.rs` lanza programas del sistema sin shell: `espeak-ng`/`espeak -v<idioma> -k1`
+  (y `--punct` como el original), o `say` en macOS; el pitido usa el sonido de alerta del
+  sistema. Un dictado nuevo corta el anterior; si un programa falla, no se reintenta.
+- La interfaz dicta cuando cambia la posición (ejercicio y cursor), así un error no repite
+  el dictado.
 
 ## Progreso y Top 10
 

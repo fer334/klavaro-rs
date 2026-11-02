@@ -23,3 +23,5 @@ progress-accuracy = Tarkkuus
 progress-speed = Nopeus
 progress-fluidity = Sujuvuus
 tutor-special-tip = Tämä on erityisharjoitus, joka on sovitettu virheprofiiliisi.
+menu-speech = Puhe
+speech-voice = fi

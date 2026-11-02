@@ -83,6 +83,8 @@ pub(crate) struct SettingsForm {
     pub(crate) paragraphs: u8,
     /// Abrir directamente el último módulo usado.
     pub(crate) autostart: bool,
+    /// Pitido al equivocarse.
+    pub(crate) beep: bool,
     /// Metas en el orden de [`Module::ALL`].
     pub(crate) goals: [GoalInput; 4],
 }
@@ -94,6 +96,7 @@ impl SettingsForm {
             name: config.player_name.clone().unwrap_or_default(),
             paragraphs: config.fluid_paragraphs,
             autostart: config.autostart,
+            beep: config.beep,
             goals: Module::ALL.map(|_| GoalInput::new(Goals::default().basic)),
         };
         form.set_goals(&config.goals);
@@ -169,6 +172,7 @@ impl SettingsForm {
         out.player_name = (!name.is_empty()).then(|| name.to_owned());
         out.fluid_paragraphs = self.paragraphs;
         out.autostart = self.autostart;
+        out.beep = self.beep;
         Ok(out.sanitized())
     }
 }
@@ -225,6 +229,7 @@ mod tests {
         let mut form = SettingsForm::new(&config);
         form.name = "  ".into();
         form.autostart = true;
+        form.beep = true;
         form.add_paragraphs(100);
         form.set_goal(Module::Velocity, GoalField::Speed, "62,5".into());
         form.set_goal(Module::Fluidity, GoalField::Fluidity, "80".into());
@@ -233,6 +238,7 @@ mod tests {
         let out = form.apply(&config).expect("válido");
         assert_eq!(out.player_name, None);
         assert!(out.autostart);
+        assert!(out.beep);
         assert_eq!(out.fluid_paragraphs, 10);
         assert!((out.goals.velocity.speed - 62.5).abs() < 1e-9);
         assert_eq!(out.goals.fluidity.fluidity, Some(80.0));

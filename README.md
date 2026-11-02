@@ -3,12 +3,13 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fase 7. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
+> Estado: fase 8. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
 > guarda la configuración, el historial y el Top 10 de Fluidez, importa la primera vez los
 > datos del Klavaro original, muestra los textos en los 40 idiomas del original y tiene
 > gráficos de progreso y la tabla del Top 10 (teclas P y T en el menú). Rastrea errores y
 > tiempos por tecla, con sus gráficos y la sesión especial de Adaptabilidad. Las preferencias
-> (nombre del Top 10, párrafos de Fluidez, inicio automático y metas) se editan en pantalla. También hay una práctica alternativa en la terminal:
+> (nombre del Top 10, párrafos de Fluidez, inicio automático, pitido y metas) se editan en
+> pantalla. Modo dictado con espeak (o `say` en macOS) y pitido al equivocarse. También hay una práctica alternativa en la terminal:
 >
 > ```sh
 > cargo run                                   # abre la ventana

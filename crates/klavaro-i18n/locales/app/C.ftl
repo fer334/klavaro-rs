@@ -42,3 +42,6 @@ settings-defaults = Default goals
 settings-save = Save
 settings-saved = Settings saved.
 settings-invalid = Check the fields in red: accuracy and fluidity go from 0 to 100, speed from 0 to 200.
+menu-speech-tip = Dictation mode: says each key or word before you type it (with { $engine }).
+menu-speech-missing = Dictation mode needs espeak or espeak-ng installed (on macOS, say also works).
+settings-beep = Beep on errors
