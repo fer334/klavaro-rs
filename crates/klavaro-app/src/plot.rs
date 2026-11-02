@@ -99,25 +99,56 @@ impl Plot<'_> {
         area.y + area.height * (1.0 - t)
     }
 
-    /// Índice del punto más cercano al mouse, si está sobre el gráfico.
+    /// Índice del punto más cercano al mouse, si está sobre el gráfico. En las barras cuenta
+    /// sólo la distancia horizontal (la barra ocupa toda la columna); en las líneas, la
+    /// distancia al punto dibujado.
     fn hovered(&self, area: Rectangle, cursor: Point) -> Option<usize> {
         if self.chart.points.is_empty() || !area.expand(8.0).contains(cursor) {
             return None;
         }
-        (0..self.chart.points.len()).min_by(|&a, &b| {
-            let da = (Self::x(area, a) - cursor.x).abs();
-            let db = (Self::x(area, b) - cursor.x).abs();
-            da.total_cmp(&db)
-        })
+        let per_key = self.chart.metric.per_key();
+        let distance = |i: usize| {
+            let dx = Self::x(area, i) - cursor.x;
+            if per_key {
+                dx.abs()
+            } else {
+                let dy = self.y(area, self.chart.points[i].value) - cursor.y;
+                dx.hypot(dy)
+            }
+        };
+        (0..self.chart.points.len()).min_by(|&a, &b| distance(a).total_cmp(&distance(b)))
     }
 }
 
 impl<Message> canvas::Program<Message> for Plot<'_> {
-    type State = ();
+    /// Punto señalado en el último dibujo.
+    type State = Option<usize>;
+
+    /// Pide redibujar cuando el mouse cambia de punto señalado; sin esto el `canvas` no se
+    /// vuelve a dibujar mientras el mouse se mueve dentro de él.
+    fn update(
+        &self,
+        state: &mut Option<usize>,
+        event: &canvas::Event,
+        bounds: Rectangle,
+        cursor: mouse::Cursor,
+    ) -> Option<canvas::Action<Message>> {
+        if !matches!(event, canvas::Event::Mouse(_)) {
+            return None;
+        }
+        let area = self.area(bounds.size());
+        let hovered = cursor
+            .position_in(bounds)
+            .and_then(|c| self.hovered(area, c));
+        (hovered != *state).then(|| {
+            *state = hovered;
+            canvas::Action::request_redraw()
+        })
+    }
 
     fn draw(
         &self,
-        _state: &(),
+        _state: &Option<usize>,
         renderer: &Renderer,
         theme: &Theme,
         bounds: Rectangle,
@@ -197,7 +228,7 @@ impl<Message> canvas::Program<Message> for Plot<'_> {
 
     fn mouse_interaction(
         &self,
-        _state: &(),
+        _state: &Option<usize>,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
