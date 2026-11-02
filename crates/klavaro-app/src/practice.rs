@@ -6,18 +6,15 @@
 //! hay tiempos por tecla: la fluidez no se calcula.
 
 use std::fmt::Write as _;
-use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use klavaro_core::Module;
-use klavaro_core::generators::{LanguageRules, adaptability, basic, fluidity, velocity};
-use klavaro_core::goals::{Comment, CommentContext, Goals};
-use klavaro_core::keyboard::KeyboardLayout;
-use klavaro_core::rng::SplitMix64;
+use klavaro_core::goals::{CommentContext, Goals};
 use klavaro_core::session::{CharState, Feedback, Key, Session};
-use klavaro_data::{kbd, lessons, texts};
+
+use crate::assets;
+use crate::exercise::{self, ExerciseSpec, comment_text, module_name};
 
 const GREEN: &str = "\x1b[32m";
 const RED: &str = "\x1b[31;4m";
@@ -46,61 +43,19 @@ impl Default for PracticeOptions {
     }
 }
 
-/// Carpeta de datos: `KLAVARO_ASSETS` o la carpeta `assets/` del repositorio.
-fn assets_dir() -> PathBuf {
-    std::env::var_os("KLAVARO_ASSETS").map_or_else(
-        || Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets"),
-        PathBuf::from,
-    )
-}
-
-fn read_asset(name: &str) -> io::Result<String> {
-    let path = assets_dir().join(name);
-    fs::read_to_string(&path)
-        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))
-}
-
-fn invalid(msg: impl Into<String>) -> io::Error {
-    io::Error::new(io::ErrorKind::InvalidData, msg.into())
-}
-
-/// Genera el texto del ejercicio.
-fn exercise_text(opts: &PracticeOptions, layout: &KeyboardLayout, seed: u64) -> io::Result<String> {
-    let rules = LanguageRules::new(opts.language.clone());
-    let mut rng = SplitMix64::new(seed);
-    let text = match opts.module {
-        Module::Basic => {
-            let masks = lessons::parse_basic_lessons(&read_asset("basic_lessons.txt")?)
-                .map_err(|e| invalid(e.to_string()))?;
-            let index = usize::from(opts.lesson.clamp(1, basic::FIXED_LESSONS)) - 1;
-            let set = masks
-                .get(index)
-                .map(|m| m.charset(layout))
-                .unwrap_or_default();
-            basic::generate(&set, &rules, &mut rng)
-        }
-        Module::Adaptability => Some(adaptability::generate(layout, &rules, None, &mut rng)),
-        Module::Velocity => {
-            let words = texts::parse_words(&read_asset(&format!("{}.words", opts.language))?);
-            velocity::generate(&words, &rules, &mut rng)
-        }
-        Module::Fluidity => {
-            let pars =
-                texts::parse_paragraphs(&read_asset(&format!("{}.paragraphs", opts.language))?);
-            fluidity::select(&pars, 1, false, &mut rng)
-        }
-    };
-    text.ok_or_else(|| invalid("no se pudo generar el ejercicio con estos datos"))
-}
-
 /// Ejecuta una práctica interactiva.
 pub(crate) fn run(opts: &PracticeOptions) -> io::Result<()> {
-    let layout_text = read_asset(&format!("{}.kbd", opts.keyboard))?;
-    let layout = kbd::parse(&opts.keyboard, &layout_text).map_err(|e| invalid(e.to_string()))?;
+    let layout = assets::keyboard(&opts.keyboard)?;
     let seed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(1, |d| d.as_secs());
-    let mut text = exercise_text(opts, &layout, seed)?;
+    let spec = ExerciseSpec {
+        module: opts.module,
+        lesson: opts.lesson,
+        paragraphs: 1,
+        language: opts.language.clone(),
+    };
+    let mut text = exercise::generate(&spec, &layout, seed)?;
     // En la terminal, un ejercicio corto alcanza: sólo las dos primeras líneas.
     text = text.lines().take(2).flat_map(|l| [l, "\n"]).collect();
 
@@ -211,60 +166,9 @@ fn paint_line(session: &Session, line: usize) -> String {
     out
 }
 
-fn module_name(m: Module) -> &'static str {
-    match m {
-        Module::Basic => "Curso básico",
-        Module::Adaptability => "Adaptabilidad",
-        Module::Velocity => "Velocidad",
-        Module::Fluidity => "Fluidez",
-    }
-}
-
-/// Textos provisorios en español; en la fase 2 vienen de Fluent.
-fn comment_text(c: Comment) -> String {
-    match c {
-        Comment::TooManyErrors => ":-( Demasiados errores. Más despacio y con atención.".into(),
-        Comment::BasicNextLesson => "¡Bien! Pasá a la próxima lección.".into(),
-        Comment::BasicCourseCompleted => "¡Completaste el curso básico!".into(),
-        Comment::AdaptTryAgain { target } => format!("Intentá de nuevo, hasta {target:.0} %."),
-        Comment::AdaptImproving { target } => format!("Vas bien. Llegá a {target:.0} %."),
-        Comment::AdaptAlmostThere { target } => format!("Casi: la meta es {target:.0} %."),
-        Comment::AdaptDone => "¡Muy bien! Seguí con el ejercicio de Velocidad.".into(),
-        Comment::VeloBePatient => "Paciencia: practicá un poco todos los días.".into(),
-        Comment::VeloKeepGoing { target } => format!("Buen ritmo. Próxima meta: {target:.0} PPM."),
-        Comment::VeloDone {
-            next_target: Some(t),
-        } => {
-            format!("¡Meta cumplida! Si querés más: {t:.0} PPM.")
-        }
-        Comment::VeloDone { next_target: None } => "¡Velocidad de profesional!".into(),
-        Comment::FluidTooSlow { target } => {
-            format!("Preciso pero lento: apuntá a {target:.0} PPM.")
-        }
-        Comment::FluidIrregular { target } => format!("Ritmo irregular: apuntá a {target:.0}."),
-        Comment::FluidAlmostThere { target } => format!("Casi: fluidez {target:.0}."),
-        Comment::FluidCongratulations => "¡Felicitaciones!".into(),
-        Comment::FluidBeyondExpectations => "¡Superaste todas las expectativas!".into(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn exercises_generate_from_repo_assets() {
-        let layout =
-            kbd::parse("qwerty_es", &read_asset("qwerty_es.kbd").expect("kbd")).expect("kbd");
-        for module in Module::ALL {
-            let opts = PracticeOptions {
-                module,
-                ..PracticeOptions::default()
-            };
-            let text = exercise_text(&opts, &layout, 3).expect("texto");
-            assert!(!text.trim().is_empty(), "{module:?}");
-        }
-    }
 
     #[test]
     fn feeding_a_perfect_line_marks_it_correct() {

@@ -16,6 +16,13 @@ klavaro-core.workspace = true
 klavaro-data.workspace = true
 klavaro-store.workspace = true
 klavaro-i18n.workspace = true
+iced = { workspace = true, optional = true }
+
+[features]
+default = ["gui"]
+# Interfaz gráfica. Sin ella (`--no-default-features`) queda sólo la práctica en terminal,
+# útil para compilar y probar sin descargar iced.
+gui = ["dep:iced"]
 
 [lints]
 workspace = true

@@ -3,14 +3,16 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fases 0 y 1 (esqueleto y núcleo de dominio). Todavía no hay interfaz gráfica;
-> mientras tanto hay una práctica provisoria en la terminal:
+> Estado: fase 2 en curso. Primer prototipo de la interfaz en iced (menú, ejercicio con
+> colores y cursor, resultados) y una práctica alternativa en la terminal:
 >
 > ```sh
-> cargo run -- --practicar                    # Velocidad en español
-> cargo run -- --practicar basico --leccion 3
+> cargo run                                   # abre la ventana
+> cargo run -- --practicar basico --leccion 3 # práctica en la terminal
 > cargo run -- --help
 > ```
+>
+> `--no-default-features` compila sin iced (sólo terminal).
 
 ## Créditos
 

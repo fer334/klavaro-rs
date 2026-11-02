@@ -11,7 +11,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.88"
 license = "GPL-3.0-or-later"
 description = "Reimplementación en Rust del tutor de mecanografía Klavaro"
 publish = false
@@ -21,6 +21,7 @@ klavaro-core = { path = "crates/klavaro-core" }
 klavaro-data = { path = "crates/klavaro-data" }
 klavaro-store = { path = "crates/klavaro-store" }
 klavaro-i18n = { path = "crates/klavaro-i18n" }
+iced = "0.14"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

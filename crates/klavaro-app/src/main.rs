@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! klavaro-rs: tutor de mecanografía.
 //!
-//! La interfaz en iced llega en la fase 2. Mientras tanto, `--practicar` ofrece una práctica
-//! provisoria en la terminal con el núcleo y los datos reales.
+//! Sin opciones abre la interfaz gráfica (iced). `--practicar` ofrece además una práctica
+//! en la terminal con el mismo núcleo y los mismos datos.
 
+// Parte de estos módulos sólo la usa la interfaz gráfica.
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod assets;
+mod exercise;
+#[cfg(feature = "gui")]
+mod gui;
 mod practice;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod tutor;
 
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -16,6 +24,8 @@ const HELP: &str = "\
 klavaro-rs — tutor de mecanografía
 
 Uso: klavaro-rs [OPCIONES]
+
+Sin opciones abre la ventana del tutor.
 
 Opciones:
   -h, --help              Muestra esta ayuda
@@ -101,12 +111,8 @@ fn main() -> ExitCode {
         drop(out);
         practice::run(p)
     } else {
-        writeln!(
-            out,
-            "klavaro-rs {}: la interfaz gráfica llega en la fase 2.\n\
-             Mientras tanto probá `klavaro-rs --practicar` (ver --help).",
-            env!("CARGO_PKG_VERSION")
-        )
+        drop(out);
+        open_window()
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -115,6 +121,19 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+#[cfg(feature = "gui")]
+fn open_window() -> io::Result<()> {
+    gui::run().map_err(|e| io::Error::other(e.to_string()))
+}
+
+#[cfg(not(feature = "gui"))]
+fn open_window() -> io::Result<()> {
+    writeln!(
+        io::stdout(),
+        "Compilado sin interfaz gráfica. Probá `klavaro-rs --practicar` (ver --help)."
+    )
 }
 
 #[cfg(test)]
