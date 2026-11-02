@@ -78,3 +78,6 @@ hint-right = { $finger } (mano derecha)
 hint-shift = Mayúsculas con la otra mano
 notice-imported-sessions = Se importaron { $sessions } sesiones del Klavaro original.
 progress-session-one = Última sesión · { $first }
+settings-check-updates = Avisar cuando haya una versión nueva
+update-available = Hay una versión nueva de klavaro-rs: { $version } (tiene la { $current }).
+update-download = Descargar

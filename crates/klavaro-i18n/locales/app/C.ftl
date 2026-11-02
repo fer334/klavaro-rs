@@ -50,3 +50,6 @@ hint-right = { $finger } (right hand)
 hint-shift = Shift with the opposite hand
 notice-imported-sessions = Imported { $sessions } sessions from the original Klavaro.
 progress-session-one = Last session · { $first }
+settings-check-updates = Tell me when a new version is out
+update-available = A new version of klavaro-rs is available: { $version } (you have { $current }).
+update-download = Download

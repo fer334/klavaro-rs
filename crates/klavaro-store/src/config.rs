@@ -44,6 +44,8 @@ pub struct Config {
     pub alt_colors: bool,
     /// Mostrar el teclado virtual con los dedos durante el ejercicio.
     pub show_keyboard: bool,
+    /// Buscar una versión nueva al abrir (consulta los releases en GitHub).
+    pub check_updates: bool,
     /// Fuente del ejercicio (familia y tamaño).
     pub lesson_font: Option<String>,
     /// Nombre para el Top 10; `None` = el del usuario del sistema.
@@ -66,6 +68,7 @@ impl Default for Config {
             last_module: None,
             alt_colors: false,
             show_keyboard: true,
+            check_updates: true,
             lesson_font: None,
             player_name: None,
             goals: Goals::default(),
@@ -209,6 +212,7 @@ struct ConfigFile {
     autostart: Option<bool>,
     alt_colors: Option<bool>,
     show_keyboard: Option<bool>,
+    check_updates: Option<bool>,
     goals: GoalsFile,
 }
 
@@ -266,6 +270,7 @@ impl ConfigFile {
             autostart: Some(c.autostart),
             alt_colors: Some(c.alt_colors),
             show_keyboard: Some(c.show_keyboard),
+            check_updates: Some(c.check_updates),
             goals: GoalsFile {
                 basic: Some(c.goals.basic.into()),
                 adaptability: Some(c.goals.adaptability.into()),
@@ -292,6 +297,7 @@ impl ConfigFile {
             autostart: self.autostart.unwrap_or(d.autostart),
             alt_colors: self.alt_colors.unwrap_or(d.alt_colors),
             show_keyboard: self.show_keyboard.unwrap_or(d.show_keyboard),
+            check_updates: self.check_updates.unwrap_or(d.check_updates),
             goals: Goals {
                 basic: goal(self.goals.basic, d.goals.basic),
                 adaptability: goal(self.goals.adaptability, d.goals.adaptability),
@@ -345,6 +351,7 @@ mod tests {
             basic_lesson: 12,
             last_module: Some(Module::Fluidity),
             alt_colors: true,
+            check_updates: false,
             ..Config::default()
         };
         c.goals.fluidity.fluidity = Some(80.0);

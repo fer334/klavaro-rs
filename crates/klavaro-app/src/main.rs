@@ -33,6 +33,8 @@ mod style;
 mod tutor;
 #[cfg(feature = "gui")]
 mod typing;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod update;
 
 use std::io::{self, Write};
 use std::process::ExitCode;

@@ -85,6 +85,8 @@ pub(crate) struct SettingsForm {
     pub(crate) autostart: bool,
     /// Pitido al equivocarse.
     pub(crate) beep: bool,
+    /// Buscar una versión nueva al abrir.
+    pub(crate) check_updates: bool,
     /// Metas en el orden de [`Module::ALL`].
     pub(crate) goals: [GoalInput; 4],
 }
@@ -97,6 +99,7 @@ impl SettingsForm {
             paragraphs: config.fluid_paragraphs,
             autostart: config.autostart,
             beep: config.beep,
+            check_updates: config.check_updates,
             goals: Module::ALL.map(|_| GoalInput::new(Goals::default().basic)),
         };
         form.set_goals(&config.goals);
@@ -173,6 +176,7 @@ impl SettingsForm {
         out.fluid_paragraphs = self.paragraphs;
         out.autostart = self.autostart;
         out.beep = self.beep;
+        out.check_updates = self.check_updates;
         Ok(out.sanitized())
     }
 }
@@ -230,6 +234,7 @@ mod tests {
         form.name = "  ".into();
         form.autostart = true;
         form.beep = true;
+        form.check_updates = false;
         form.add_paragraphs(100);
         form.set_goal(Module::Velocity, GoalField::Speed, "62,5".into());
         form.set_goal(Module::Fluidity, GoalField::Fluidity, "80".into());
@@ -239,6 +244,7 @@ mod tests {
         assert_eq!(out.player_name, None);
         assert!(out.autostart);
         assert!(out.beep);
+        assert!(!out.check_updates);
         assert_eq!(out.fluid_paragraphs, 10);
         assert!((out.goals.velocity.speed - 62.5).abs() < 1e-9);
         assert_eq!(out.goals.fluidity.fluidity, Some(80.0));

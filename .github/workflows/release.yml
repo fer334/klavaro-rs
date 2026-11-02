@@ -11,6 +11,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Repositorio donde la app busca versiones nuevas (ver crates/klavaro-app/src/update.rs).
+  KLAVARO_RELEASES: ${{ github.repository }}
 
 jobs:
   package:

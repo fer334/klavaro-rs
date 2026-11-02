@@ -17,12 +17,17 @@ klavaro-data.workspace = true
 klavaro-store.workspace = true
 klavaro-i18n.workspace = true
 iced = { workspace = true, optional = true }
+ureq = { version = "3", features = ["json"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [features]
-default = ["gui"]
+default = ["gui", "update"]
 # Interfaz gráfica. Sin ella (`--no-default-features`) queda sólo la práctica en terminal,
 # útil para compilar y probar sin descargar iced.
 gui = ["dep:iced"]
+# Aviso de versión nueva: consulta el último release en GitHub (ver `update.rs`).
+update = ["dep:ureq", "dep:serde", "dep:serde_json"]
 
 [lints]
 workspace = true

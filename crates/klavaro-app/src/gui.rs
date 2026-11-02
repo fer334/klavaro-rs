@@ -36,6 +36,7 @@ use crate::speech::{Say, spoken};
 use crate::style;
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 use crate::typing::Typing;
+use crate::update::{self, Release};
 
 /// Abre la ventana principal.
 pub(crate) fn run() -> iced::Result {
@@ -122,6 +123,8 @@ struct App {
     finger_tip: Option<(Instant, (u32, usize))>,
     /// Si ya hay un temporizador en marcha para [`App::finger_tip`].
     tip_waiting: bool,
+    /// Versión nueva publicada, si la hay.
+    release: Option<Release>,
 }
 
 #[derive(Debug, Clone)]
@@ -155,13 +158,18 @@ enum Message {
     SettingsParagraphs(i32),
     SettingsAutostart(bool),
     SettingsBeep(bool),
+    SettingsCheckUpdates(bool),
     SettingsGoal(Module, GoalField, String),
     SettingsDefaults,
     SettingsSave,
+    /// Resultado de la búsqueda de una versión nueva.
+    ReleaseFound(Option<Release>),
+    /// Abre la página de la versión nueva.
+    OpenRelease,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new() -> (Self, Task<Message>) {
         let profile = Profile::open();
         let config = &profile.config;
         let languages = assets::languages();
@@ -209,6 +217,7 @@ impl App {
             fingers: assets::fingers().ok(),
             finger_tip: None,
             tip_waiting: false,
+            release: None,
         };
         app.load_tracker();
         if app.profile.config.autostart
@@ -217,7 +226,12 @@ impl App {
         {
             app.error = Some(e.to_string());
         }
-        app
+        let check = if app.profile.config.check_updates && update::available() {
+            check_release()
+        } else {
+            Task::none()
+        };
+        (app, check)
     }
 
     /// Idiomas de los textos para las listas desplegables.
@@ -364,12 +378,23 @@ impl App {
             | Message::SettingsParagraphs(_)
             | Message::SettingsAutostart(_)
             | Message::SettingsBeep(_)
+            | Message::SettingsCheckUpdates(_)
             | Message::ToggleSpeech(_)
             | Message::ToggleKeyboard
             | Message::SettingsGoal(..)
             | Message::SettingsDefaults
             | Message::SettingsSave) => {
                 self.update_settings(m);
+                Ok(())
+            }
+            Message::ReleaseFound(release) => {
+                self.release = release;
+                Ok(())
+            }
+            Message::OpenRelease => {
+                if let Some(r) = &self.release {
+                    update::open_in_browser(&r.url);
+                }
                 Ok(())
             }
             Message::Key(input) => self.key(input),
@@ -553,6 +578,7 @@ impl App {
             Message::SettingsParagraphs(delta) => f.add_paragraphs(delta),
             Message::SettingsAutostart(on) => f.autostart = on,
             Message::SettingsBeep(on) => f.beep = on,
+            Message::SettingsCheckUpdates(on) => f.check_updates = on,
             Message::SettingsGoal(module, field, value) => f.set_goal(module, field, value),
             Message::SettingsDefaults => f.default_goals(),
             _ => {}
@@ -743,11 +769,38 @@ impl App {
         if let (Screen::Menu, Some(n)) = (&self.screen, &self.notice) {
             page = page.push(banner(n.clone(), style::info_banner));
         }
+        if let (Screen::Menu, Some(r)) = (&self.screen, &self.release) {
+            page = page.push(self.release_banner(r));
+        }
         container(page.push(body))
             .padding(24)
             .width(Length::Fill)
             .height(Length::Fill)
             .into()
+    }
+
+    /// Aviso de versión nueva, con el botón para ir a descargarla.
+    fn release_banner<'a>(&self, release: &Release) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let message = tr.tr_args(
+            "update-available",
+            &[("version", &release.version), ("current", update::CURRENT)],
+        );
+        container(
+            row![
+                text(message).size(14).width(Length::Fill),
+                button(text(tr.tr("update-download")).size(14))
+                    .style(style::primary)
+                    .padding([6, 14])
+                    .on_press(Message::OpenRelease),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+        )
+        .padding([8, 14])
+        .width(Length::Fill)
+        .style(style::info_banner)
+        .into()
     }
 
     fn view_menu<'a>(&'a self) -> Element<'a, Message> {
@@ -1223,6 +1276,11 @@ impl App {
                                 .label(tr.tr("settings-beep"))
                                 .on_toggle(Message::SettingsBeep),
                         ]
+                        .push(update::available().then(|| {
+                            checkbox(form.check_updates)
+                                .label(tr.tr("settings-check-updates"))
+                                .on_toggle(Message::SettingsCheckUpdates)
+                        }))
                         .spacing(16)
                     ),
                     card(
@@ -1562,6 +1620,15 @@ fn wake_after(delay: Duration) -> Task<Message> {
         let _ = tx.send(());
     });
     Task::perform(rx, |_| Message::FingerTip)
+}
+
+/// Tarea que busca una versión nueva en un hilo aparte (la consulta bloquea).
+fn check_release() -> Task<Message> {
+    let (tx, rx) = iced::futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(update::check());
+    });
+    Task::perform(rx, |r| Message::ReleaseFound(r.ok().flatten()))
 }
 
 /// Traduce los eventos de teclado de iced a acciones del tutor.
