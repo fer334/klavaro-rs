@@ -5,6 +5,10 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Crates sin mantenimiento: sólo se rechazan entre las dependencias directas. Las indirectas
+# (paste, ttf-parser, zvariant… que trae iced) no tienen reemplazo hasta que iced las cambie.
+# Las vulnerabilidades se siguen rechazando en todo el árbol.
+unmaintained = "workspace"
 
 [licenses]
 version = 2
