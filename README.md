@@ -3,8 +3,9 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fase 2 en curso. Primer prototipo de la interfaz en iced (menú, ejercicio con
-> colores y cursor, resultados) y una práctica alternativa en la terminal:
+> Estado: fase 3. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
+> guarda la configuración, el historial y el Top 10 de Fluidez, e importa la primera vez los
+> datos del Klavaro original. También hay una práctica alternativa en la terminal:
 >
 > ```sh
 > cargo run                                   # abre la ventana
@@ -26,11 +27,22 @@ teclado, textos y traducciones), por lo que se distribuye con la misma licencia.
 | --- | --- |
 | `klavaro-core` | Dominio puro: sesión, métricas, metas, generadores, rastreo por tecla, ranking |
 | `klavaro-data` | Formatos del original: `.kbd`, `basic_lessons.txt`, `.words`, `.paragraphs`, historial e INI |
-| `klavaro-store` | Configuración (y, más adelante, historial en SQLite) |
+| `klavaro-store` | `config.toml`, historial y Top 10 en SQLite, importación del Klavaro original |
 | `klavaro-i18n` | Catálogo de idiomas y detección (y, más adelante, traducciones Fluent) |
 | `klavaro-app` | Binario `klavaro-rs` (interfaz iced en la fase 2) |
 
 Ver [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Datos del usuario
+
+| Archivo | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| `config.toml` | `~/.config/klavaro-rs/` | `~/Library/Application Support/io.sourceforge.Klavaro.klavaro-rs/` | `%APPDATA%\Klavaro\klavaro-rs\config\` |
+| `history.sqlite3` | `~/.local/share/klavaro-rs/` | igual que `config.toml` | `%APPDATA%\Klavaro\klavaro-rs\data\` |
+
+`KLAVARO_HOME=carpeta` guarda todo en esa carpeta (modo portátil y pruebas). Al abrir por
+primera vez se importan `preferences.ini`, `stat_*.txt` y `scores_fluid.txt` del Klavaro
+original (`~/.config/klavaro` y `~/.local/share/klavaro`), una sola vez.
 
 ## Desarrollo
 

@@ -13,7 +13,8 @@ use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, T
 use klavaro_core::Module;
 
 use crate::assets;
-use crate::exercise::{ExerciseSpec, comment_text, module_name};
+use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, recorded_text};
+use crate::profile::Profile;
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 
 /// Abre la ventana principal.
@@ -40,6 +41,11 @@ struct App {
     lesson: u16,
     dark: bool,
     error: Option<String>,
+    /// Nota sobre el registro del último ejercicio (Top 10, no registrado…).
+    note: Option<String>,
+    /// Aviso al abrir (importación o problemas con los archivos).
+    notice: Option<String>,
+    profile: Profile,
     clock: Instant,
 }
 
@@ -57,28 +63,86 @@ enum Message {
 
 impl App {
     fn new() -> Self {
+        let profile = Profile::open();
+        let config = &profile.config;
         let languages = assets::languages();
         let keyboards = assets::keyboards();
-        let pick = |list: &[String], wanted: &str| {
-            if list.iter().any(|x| x == wanted) {
-                wanted.to_owned()
-            } else {
-                list.first().cloned().unwrap_or_default()
-            }
+        let pick = |list: &[String], wanted: &str, fallback: &str| {
+            [wanted, fallback]
+                .into_iter()
+                .find(|w| list.iter().any(|x| x == w))
+                .map(str::to_owned)
+                .or_else(|| list.first().cloned())
+                .unwrap_or_default()
         };
+        let system = klavaro_i18n::system_preferences();
+        let text_language = config.text_language.clone().unwrap_or_else(|| {
+            let prefs = config.language.iter().chain(&system).map(String::as_str);
+            klavaro_i18n::resolve(prefs).to_owned()
+        });
         let error = keyboards
             .is_empty()
             .then(|| format!("No se encontraron datos en {}", assets::dir().display()));
-        Self {
-            language: pick(&languages, "es"),
-            keyboard: pick(&keyboards, "qwerty_es"),
+        let mut app = Self {
+            language: pick(&languages, &text_language, "es"),
+            keyboard: pick(
+                &keyboards,
+                config.keyboard.as_deref().unwrap_or("qwerty_es"),
+                "qwerty_us",
+            ),
             languages,
             keyboards,
-            lesson: 1,
-            dark: false,
+            lesson: config.basic_lesson,
+            dark: config.alt_colors,
             error,
+            note: None,
+            notice: profile.notice.as_ref().map(notice_text),
             screen: Screen::Menu,
             clock: Instant::now(),
+            profile,
+        };
+        if app.profile.config.autostart
+            && let Some(m) = app.profile.config.last_module
+            && let Err(e) = app.start(m)
+        {
+            app.error = Some(e.to_string());
+        }
+        app
+    }
+
+    /// Copia el estado de la pantalla a la configuración y la guarda.
+    fn persist(&mut self) {
+        let c = &mut self.profile.config;
+        c.text_language = Some(self.language.clone());
+        c.keyboard = Some(self.keyboard.clone());
+        c.basic_lesson = self.lesson;
+        c.alt_colors = self.dark;
+        if let Err(e) = self.profile.save_config() {
+            self.error = Some(e.to_string());
+        }
+    }
+
+    /// Registra el ejercicio recién terminado.
+    fn record(&mut self) {
+        let Screen::Tutor(t) = &self.screen else {
+            return;
+        };
+        let Some(outcome) = t.outcome() else {
+            return;
+        };
+        let model = if t.spec().module == klavaro_core::Module::Fluidity {
+            assets::paragraphs(&t.spec().language)
+                .map(|p| p.join(" "))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        match self
+            .profile
+            .record(t.spec(), &self.keyboard, outcome, &t.text(), &model)
+        {
+            Ok(r) => self.note = recorded_text(r),
+            Err(e) => self.error = Some(e.to_string()),
         }
     }
 
@@ -93,6 +157,8 @@ impl App {
         if self.dark { Theme::Dark } else { Theme::Light }
     }
 
+    // iced pide `Fn(&State)`.
+    #[allow(clippy::unused_self)]
     fn subscription(&self) -> Subscription<Message> {
         event::listen_with(on_event)
     }
@@ -102,31 +168,37 @@ impl App {
             Message::Start(module) => self.start(module),
             Message::LanguageSelected(l) => {
                 self.language = l;
+                self.persist();
                 Ok(())
             }
             Message::KeyboardSelected(k) => {
                 self.keyboard = k;
+                self.persist();
                 Ok(())
             }
             Message::ToggleTheme => {
                 self.dark = !self.dark;
+                self.persist();
                 Ok(())
             }
             Message::Back => {
-                if let Screen::Tutor(t) = &self.screen {
-                    self.lesson = t.spec().lesson;
-                }
                 self.screen = Screen::Menu;
                 Ok(())
             }
             Message::Restart => match &mut self.screen {
-                Screen::Tutor(t) => t.restart(),
+                Screen::Tutor(t) => {
+                    self.note = None;
+                    t.restart()
+                }
                 Screen::Menu => Ok(()),
             },
             Message::LessonDelta(delta) => match &mut self.screen {
                 Screen::Tutor(t) => {
                     let lesson = i32::from(t.spec().lesson) + delta;
-                    t.set_lesson(u16::try_from(lesson.max(1)).unwrap_or(1))
+                    let r = t.set_lesson(u16::try_from(lesson.max(1)).unwrap_or(1));
+                    self.note = None;
+                    self.sync_lesson();
+                    r
                 }
                 Screen::Menu => Ok(()),
             },
@@ -140,26 +212,52 @@ impl App {
 
     fn start(&mut self, module: Module) -> std::io::Result<()> {
         let layout = assets::keyboard(&self.keyboard)?;
+        let config = &self.profile.config;
         let spec = ExerciseSpec {
             module,
             lesson: self.lesson,
-            paragraphs: 3,
+            paragraphs: usize::from(config.fluid_paragraphs),
             language: self.language.clone(),
         };
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_secs());
-        self.screen = Screen::Tutor(Box::new(Tutor::new(spec, layout, seed)?));
+        let tutor = Tutor::new(spec, layout, config.goals.clone(), seed)?;
+        self.screen = Screen::Tutor(Box::new(tutor));
         self.error = None;
+        self.note = None;
+        self.notice = None;
+        self.profile.config.last_module = Some(module);
+        self.persist();
         Ok(())
+    }
+
+    /// Guarda la lección del curso básico si cambió.
+    fn sync_lesson(&mut self) {
+        if let Screen::Tutor(t) = &self.screen
+            && t.spec().module == Module::Basic
+            && t.spec().lesson != self.lesson
+        {
+            self.lesson = t.spec().lesson;
+            self.persist();
+        }
     }
 
     fn key(&mut self, input: Input) -> std::io::Result<()> {
         match &mut self.screen {
             Screen::Tutor(t) => {
+                let was_done = t.outcome().is_some();
                 let effect = t.handle(input, self.clock.elapsed())?;
+                if was_done && t.outcome().is_none() {
+                    self.note = None;
+                }
+                if effect.finished {
+                    self.record();
+                }
+                self.sync_lesson();
                 if effect.toggle_theme {
                     self.dark = !self.dark;
+                    self.persist();
                 }
                 Ok(())
             }
@@ -173,6 +271,7 @@ impl App {
                 }
                 if input == Input::ToggleTheme {
                     self.dark = !self.dark;
+                    self.persist();
                 }
                 Ok(())
             }
@@ -185,6 +284,9 @@ impl App {
             Screen::Tutor(t) => self.view_tutor(t),
         };
         let mut page = column![body].spacing(12).padding(24);
+        if let (Screen::Menu, Some(n)) = (&self.screen, &self.notice) {
+            page = page.push(text(n.clone()).size(14));
+        }
         if let Some(e) = &self.error {
             page = page.push(text(e.clone()).color(Color::from_rgb(0.8, 0.1, 0.1)));
         }
@@ -276,38 +378,37 @@ impl App {
         )
         .height(Length::Fill);
 
-        let footer: Element<'_, Message> = match tutor.outcome() {
-            Some(o) => {
-                let mark = |ok: bool| if ok { palette.correct } else { palette.wrong };
-                let mut results = column![
-                    text(format!("Tiempo: {:.1} s", o.stats.elapsed.as_secs_f64())),
-                    text(format!("Precisión: {:.1} %", o.stats.accuracy))
-                        .color(mark(o.check.accuracy)),
-                    text(format!("Velocidad: {:.1} PPM", o.stats.wpm)).color(mark(o.check.speed)),
-                ]
-                .spacing(4);
-                if let Some(ok) = o.check.fluidity {
-                    results = results
-                        .push(text(format!("Fluidez: {:.1}", o.stats.fluidity)).color(mark(ok)));
-                }
-                results
-                    .push(text(comment_text(o.comment)).size(18))
-                    .push(text("Enter: seguir").size(13))
-                    .into()
+        let footer: Element<'_, Message> = if let Some(o) = tutor.outcome() {
+            let mark = |ok: bool| if ok { palette.correct } else { palette.wrong };
+            let mut results = column![
+                text(format!("Tiempo: {:.1} s", o.stats.elapsed.as_secs_f64())),
+                text(format!("Precisión: {:.1} %", o.stats.accuracy)).color(mark(o.check.accuracy)),
+                text(format!("Velocidad: {:.1} PPM", o.stats.wpm)).color(mark(o.check.speed)),
+            ]
+            .spacing(4);
+            if let Some(ok) = o.check.fluidity {
+                results =
+                    results.push(text(format!("Fluidez: {:.1}", o.stats.fluidity)).color(mark(ok)));
             }
-            None => {
-                let (done, total) = tutor.progress();
-                text(format!(
-                    "{done}/{total} · Esc: nuevo ejercicio · Ctrl+A: colores{}",
-                    if spec.module == Module::Fluidity {
-                        " · Backspace corrige"
-                    } else {
-                        ""
-                    }
-                ))
-                .size(13)
+            if let Some(note) = &self.note {
+                results = results.push(text(note.clone()).size(14));
+            }
+            results
+                .push(text(comment_text(o.comment)).size(18))
+                .push(text("Enter: seguir").size(13))
                 .into()
-            }
+        } else {
+            let (done, total) = tutor.progress();
+            text(format!(
+                "{done}/{total} · Esc: nuevo ejercicio · Ctrl+A: colores{}",
+                if spec.module == Module::Fluidity {
+                    " · Backspace corrige"
+                } else {
+                    ""
+                }
+            ))
+            .size(13)
+            .into()
         };
 
         column![header, exercise, footer].spacing(12).into()

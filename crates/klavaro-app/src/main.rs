@@ -12,6 +12,8 @@ mod exercise;
 mod gui;
 mod practice;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod profile;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod tutor;
 
 use std::io::{self, Write};

@@ -402,7 +402,7 @@ mod tests {
         assert!(!k.consonants().contains(&'a'));
         assert!(k.symbols().contains(&';'));
         assert!(!k.symbols().contains(&'a'));
-        assert!(k.alt_digits().is_empty());
+        assert_eq!(k.alt_digits(), [] as [char; 0]);
     }
 
     #[test]

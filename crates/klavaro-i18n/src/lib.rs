@@ -87,6 +87,23 @@ pub fn resolve<'a>(preferences: impl IntoIterator<Item = &'a str>) -> &'static s
     FALLBACK
 }
 
+/// Idiomas preferidos del sistema según las variables POSIX (`LC_ALL`, `LC_MESSAGES`,
+/// `LANGUAGE`, `LANG`), en orden. `LANGUAGE` puede traer varios separados por `:`.
+pub fn system_preferences() -> Vec<String> {
+    let mut out = Vec::new();
+    for var in ["LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"] {
+        if let Ok(v) = std::env::var(var) {
+            out.extend(
+                v.split(':')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && *s != "C" && *s != "POSIX")
+                    .map(str::to_owned),
+            );
+        }
+    }
+    out
+}
+
 /// Quita la codificación y el modificador (`es_PY.UTF-8@euro` → `es_PY`) y usa `_` como
 /// separador.
 fn normalize(locale: &str) -> String {

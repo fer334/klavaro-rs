@@ -120,6 +120,8 @@ pub(crate) struct Effect {
     pub(crate) beep: bool,
     /// Alternar colores.
     pub(crate) toggle_theme: bool,
+    /// El ejercicio acaba de terminar: hay que registrarlo.
+    pub(crate) finished: bool,
 }
 
 /// Pantalla del tutor: ejercicio en curso y su resultado.
@@ -135,13 +137,18 @@ pub(crate) struct Tutor {
 
 impl Tutor {
     /// Crea la pantalla con un primer ejercicio.
-    pub(crate) fn new(spec: ExerciseSpec, layout: KeyboardLayout, seed: u64) -> io::Result<Self> {
+    pub(crate) fn new(
+        spec: ExerciseSpec,
+        layout: KeyboardLayout,
+        goals: Goals,
+        seed: u64,
+    ) -> io::Result<Self> {
         let text = exercise::generate(&spec, &layout, seed)?;
         let session = Session::new(spec.module, &text);
         Ok(Self {
             spec,
             layout,
-            goals: Goals::default(),
+            goals,
             session,
             outcome: None,
             seed,
@@ -156,6 +163,11 @@ impl Tutor {
     /// Resultado, si terminó.
     pub(crate) fn outcome(&self) -> Option<&Outcome> {
         self.outcome.as_ref()
+    }
+
+    /// Texto del ejercicio.
+    pub(crate) fn text(&self) -> String {
+        self.session.target().iter().collect()
     }
 
     /// Avance: caracteres tecleados y total.
@@ -223,7 +235,10 @@ impl Tutor {
     fn press(&mut self, key: Key, at: Duration, effect: &mut Effect) {
         match self.session.press(key, at) {
             Feedback::Wrong { .. } | Feedback::Ignored => effect.beep = true,
-            Feedback::Finished(stats) => self.finish(stats),
+            Feedback::Finished(stats) => {
+                self.finish(stats);
+                effect.finished = true;
+            }
             Feedback::Correct { .. } | Feedback::Retouched { .. } | Feedback::Erased => {}
         }
     }
@@ -295,7 +310,7 @@ mod tests {
             paragraphs: 1,
             language: "es".to_owned(),
         };
-        Tutor::new(spec, layout, 42).expect("tutor")
+        Tutor::new(spec, layout, Goals::default(), 42).expect("tutor")
     }
 
     fn type_target(t: &mut Tutor, wrong_every: Option<usize>) {
@@ -335,7 +350,19 @@ mod tests {
     #[test]
     fn perfect_basic_lesson_advances() {
         let mut t = tutor(Module::Basic);
-        type_target(&mut t, None);
+        let text = t.text();
+        let last = text.chars().last().expect("texto");
+        let mut finished = 0;
+        for (i, c) in text.chars().enumerate() {
+            let input = if c == '\n' {
+                Input::Enter
+            } else {
+                Input::Char(c)
+            };
+            let at = Duration::from_millis(200 * i as u64);
+            finished += usize::from(t.handle(input, at).expect("tecla").finished);
+        }
+        assert_eq!(finished, 1, "termina una sola vez (última: {last:?})");
         let outcome = t.outcome().cloned().expect("terminó");
         assert!(outcome.advance);
         assert!((outcome.stats.accuracy - 100.0).abs() < 1e-9);

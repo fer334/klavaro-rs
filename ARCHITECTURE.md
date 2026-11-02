@@ -27,6 +27,21 @@ klavaro-app ──► klavaro-i18n
 3. Cada `Feedback` indica qué pintar, si sonar y qué registrar en el `KeyTracker`.
 4. `Feedback::Finished(stats)` trae las métricas; `Goals::comment` elige el comentario y,
    en Fluidez, `Ranking::insert` decide si entra al Top 10.
+5. `profile.rs` (app) guarda la sesión en el historial con `klavaro-store`. Como el original,
+   una sesión de Fluidez con menos de 500 caracteres no se registra.
+
+## Persistencia
+
+- `config.toml` se lee con tolerancia: claves faltantes toman el valor por defecto y los
+  valores fuera de rango se corrigen (`Config::sanitized`). Se escribe en un temporal y se
+  renombra.
+- `history.sqlite3` tiene las tablas `sessions` (equivale a `stat_*.txt`), `ranking`
+  (Top 10 local por idioma), `scores` (`scores_fluid.txt`) y `meta`. El esquema se versiona
+  con `PRAGMA user_version`.
+- Los instantes son segundos desde 1970. Las fechas importadas del original (hora local) se
+  toman sin corregir la zona.
+- Si el disco falla, la app sigue con la configuración en memoria y un historial en memoria,
+  y muestra el error.
 
 ## Fidelidad con Klavaro 3.14
 

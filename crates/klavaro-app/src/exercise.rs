@@ -8,9 +8,11 @@ use klavaro_core::Module;
 use klavaro_core::generators::{LanguageRules, adaptability, basic, fluidity, velocity};
 use klavaro_core::goals::Comment;
 use klavaro_core::keyboard::KeyboardLayout;
+use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
 
 use crate::assets;
+use crate::profile::{Notice, Recorded};
 
 /// Qué ejercicio generar.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +95,35 @@ pub(crate) fn comment_text(c: Comment) -> String {
         Comment::FluidAlmostThere { target } => format!("Casi: fluidez {target:.0}."),
         Comment::FluidCongratulations => "¡Felicitaciones!".into(),
         Comment::FluidBeyondExpectations => "¡Superaste todas las expectativas!".into(),
+    }
+}
+
+/// Nota sobre el registro del ejercicio, si hay algo que contar.
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub(crate) fn recorded_text(r: Recorded) -> Option<String> {
+    match r {
+        Recorded::Logged(None | Some(Rejection::ScoreTooLow)) => None,
+        Recorded::Logged(Some(Rejection::Invalid)) => Some(":-P".into()),
+        Recorded::Logged(Some(Rejection::TextNotSimilar)) => Some(
+            "El texto no se parece a los textos comunes del idioma elegido: no cuenta para el \
+             Top 10."
+                .into(),
+        ),
+        Recorded::Ranked(place) => Some(format!("¡Entraste al Top 10 en el puesto {place}!")),
+        Recorded::TooShort { chars } => Some(format!(
+            "No se registró: tecleaste {chars} caracteres y hacen falta al menos {MIN_CHARS}."
+        )),
+    }
+}
+
+/// Mensaje al abrir la aplicación.
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub(crate) fn notice_text(n: &Notice) -> String {
+    match n {
+        Notice::Imported { sessions } => {
+            format!("Se importaron {sessions} sesiones y las preferencias del Klavaro original.")
+        }
+        Notice::Error(e) => format!("No se pudieron leer o guardar tus datos: {e}"),
     }
 }
 
