@@ -3,7 +3,7 @@
 //!
 //! Toda la lógica vive en [`crate::tutor`]; este módulo sólo traduce eventos y dibuja.
 
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::keyboard::{self, key::Named};
 use iced::widget::text::Span;
@@ -15,6 +15,7 @@ use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, T
 
 use klavaro_core::Module;
 use klavaro_core::generators::basic::MAX_LESSONS;
+use klavaro_core::keyboard::FingerMap;
 use klavaro_core::ranking::RankingEntry;
 use klavaro_core::tracker::KeyTracker;
 use klavaro_i18n::Translator;
@@ -23,6 +24,8 @@ use klavaro_store::date::format_date_time;
 use crate::assets;
 use crate::audio::{Audio, Engine};
 use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, recorded_text};
+use crate::hints::{finger_text, hint};
+use crate::keys::Keys;
 use crate::plot::Plot;
 use crate::profile::Profile;
 use crate::progress::{Chart, ChartQuery, Metric};
@@ -100,6 +103,12 @@ struct App {
     audio: Audio,
     /// Posición del último dictado (ejercicio y cursor), para no repetirlo.
     dictated: Option<(u32, usize)>,
+    /// Dedo de cada posición (`fingers_position.txt`).
+    fingers: Option<FingerMap>,
+    /// Cuándo dictar el dedo (curso básico, 3 s sin teclear) y para qué posición.
+    finger_tip: Option<(Instant, (u32, usize))>,
+    /// Si ya hay un temporizador en marcha para [`App::finger_tip`].
+    tip_waiting: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +126,10 @@ enum Message {
     ToggleSpecial,
     /// Activa o desactiva el modo dictado.
     ToggleSpeech(bool),
+    /// Muestra u oculta el teclado virtual.
+    ToggleKeyboard,
+    /// Venció la espera para dictar el dedo.
+    FingerTip,
     /// Abre el progreso del módulo (o del último usado).
     Progress(Option<Module>),
     ProgressMetric(Metric),
@@ -178,6 +191,9 @@ impl App {
             tracker: KeyTracker::new(),
             audio: Audio::new(Engine::detect()),
             dictated: None,
+            fingers: assets::fingers().ok(),
+            finger_tip: None,
+            tip_waiting: false,
         };
         app.load_tracker();
         if app.profile.config.autostart
@@ -269,6 +285,9 @@ impl App {
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
+        if matches!(message, Message::FingerTip) {
+            return self.finger_tip();
+        }
         let result = match message {
             Message::Start(module) => self.start(module),
             Message::InterfaceSelected(l) => {
@@ -292,15 +311,6 @@ impl App {
                 self.load_tracker();
                 Ok(())
             }
-            Message::ToggleSpecial => match &mut self.screen {
-                Screen::Tutor(t) => {
-                    self.note = None;
-                    t.toggle_special()
-                }
-                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
-                    Ok(())
-                }
-            },
             Message::ToggleTheme => {
                 self.dark = !self.dark;
                 self.persist();
@@ -311,27 +321,9 @@ impl App {
                 self.screen = Screen::Menu;
                 Ok(())
             }
-            Message::Restart => match &mut self.screen {
-                Screen::Tutor(t) => {
-                    self.note = None;
-                    t.restart()
-                }
-                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
-                    Ok(())
-                }
-            },
-            Message::LessonDelta(delta) => match &mut self.screen {
-                Screen::Tutor(t) => {
-                    let lesson = i32::from(t.spec().lesson) + delta;
-                    let r = t.set_lesson(u16::try_from(lesson.max(1)).unwrap_or(1));
-                    self.note = None;
-                    self.sync_lesson();
-                    r
-                }
-                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
-                    Ok(())
-                }
-            },
+            Message::ToggleSpecial | Message::Restart | Message::LessonDelta(_) => {
+                self.update_tutor(&message)
+            }
             m
             @ (Message::Progress(_) | Message::ProgressMetric(_) | Message::ProgressLesson(_)) => {
                 self.update_progress(&m);
@@ -353,6 +345,7 @@ impl App {
             | Message::SettingsAutostart(_)
             | Message::SettingsBeep(_)
             | Message::ToggleSpeech(_)
+            | Message::ToggleKeyboard
             | Message::SettingsGoal(..)
             | Message::SettingsDefaults
             | Message::SettingsSave) => {
@@ -360,12 +353,38 @@ impl App {
                 Ok(())
             }
             Message::Key(input) => self.key(input),
+            // Se atiende al principio porque devuelve una tarea.
+            Message::FingerTip => Ok(()),
         };
         if let Err(e) = result {
             self.error = Some(e.to_string());
         }
-        self.dictate();
-        Task::none()
+        match self.dictate() {
+            Some(at) if self.basic_tutor() => self.schedule_tip(at),
+            _ => {
+                self.finger_tip = None;
+                Task::none()
+            }
+        }
+    }
+
+    /// Mensajes de los botones del ejercicio (fuera de él no hacen nada).
+    fn update_tutor(&mut self, message: &Message) -> std::io::Result<()> {
+        let Screen::Tutor(t) = &mut self.screen else {
+            return Ok(());
+        };
+        self.note = None;
+        match *message {
+            Message::ToggleSpecial => t.toggle_special(),
+            Message::Restart => t.restart(),
+            Message::LessonDelta(delta) => {
+                let lesson = i32::from(t.spec().lesson) + delta;
+                let r = t.set_lesson(u16::try_from(lesson.max(1)).unwrap_or(1));
+                self.sync_lesson();
+                r
+            }
+            _ => Ok(()),
+        }
     }
 
     /// Mensajes de la pantalla de progreso.
@@ -400,7 +419,7 @@ impl App {
     }
 
     /// Dicta lo que toca teclear si cambió desde el último dictado (modo dictado).
-    fn dictate(&mut self) {
+    fn dictate(&mut self) -> Option<(u32, usize)> {
         let next = match &self.screen {
             Screen::Tutor(t) if self.profile.config.speech => t.dictation(),
             _ => None,
@@ -409,10 +428,10 @@ impl App {
             if self.dictated.take().is_some() {
                 self.audio.hush();
             }
-            return;
+            return None;
         };
         if self.dictated == Some(at) {
-            return;
+            return None;
         }
         self.dictated = Some(at);
         // El original usa las dos primeras letras del código del idioma de la interfaz.
@@ -420,6 +439,52 @@ impl App {
         let punct = matches!(say, Say::Char(_))
             || matches!(&self.screen, Screen::Tutor(t) if t.spec().module == Module::Velocity);
         self.audio.say(&voice, &spoken(&self.tr, &say), punct);
+        Some(at)
+    }
+
+    /// Si se está en un ejercicio del curso básico.
+    fn basic_tutor(&self) -> bool {
+        matches!(&self.screen, Screen::Tutor(t) if t.spec().module == Module::Basic)
+    }
+
+    /// Programa el dictado del dedo para dentro de 3 s, como `tutor_delayed_finger_tip`.
+    /// Hay a lo sumo un temporizador: si ya hay uno, al vencer vuelve a esperar lo que falte.
+    fn schedule_tip(&mut self, at: (u32, usize)) -> Task<Message> {
+        self.finger_tip = Some((Instant::now() + FINGER_TIP_DELAY, at));
+        if self.tip_waiting {
+            return Task::none();
+        }
+        self.tip_waiting = true;
+        wake_after(FINGER_TIP_DELAY)
+    }
+
+    /// Dicta el dedo si pasaron 3 s en la misma posición.
+    fn finger_tip(&mut self) -> Task<Message> {
+        self.tip_waiting = false;
+        let Some((when, at)) = self.finger_tip else {
+            return Task::none();
+        };
+        let now = Instant::now();
+        if now < when {
+            self.tip_waiting = true;
+            return wake_after(when - now);
+        }
+        self.finger_tip = None;
+        if self.dictated != Some(at) || !self.profile.config.speech {
+            return Task::none();
+        }
+        let finger = match (&self.screen, &self.fingers) {
+            (Screen::Tutor(t), Some(fingers)) => t
+                .next_char()
+                .and_then(|c| hint(t.layout(), fingers, c))
+                .and_then(|h| h.finger),
+            _ => None,
+        };
+        if let Some(f) = finger {
+            let voice: String = self.tr.tr("speech-voice").chars().take(2).collect();
+            self.audio.say(&voice, &finger_text(&self.tr, f), false);
+        }
+        Task::none()
     }
 
     /// Mensajes del formulario de preferencias (y el modo dictado del menú).
@@ -431,6 +496,11 @@ impl App {
             }
             Message::ToggleSpeech(on) => {
                 self.profile.config.speech = on;
+                self.persist();
+                return;
+            }
+            Message::ToggleKeyboard => {
+                self.profile.config.show_keyboard = !self.profile.config.show_keyboard;
                 self.persist();
                 return;
             }
@@ -817,6 +887,20 @@ impl App {
                 Message::LessonDelta(1),
             ));
         }
+        let has_keyboard = matches!(spec.module, Module::Basic | Module::Adaptability);
+        if has_keyboard {
+            actions.push(
+                tooltip(
+                    button(text(tr.tr("tutor-keyboard")))
+                        .style(style::chip(self.profile.config.show_keyboard))
+                        .padding([8, 14])
+                        .on_press(Message::ToggleKeyboard),
+                    tip_box(tr.tr("tutor-keyboard-tip")),
+                    tooltip::Position::Bottom,
+                )
+                .into(),
+            );
+        }
         actions.push(action(tr.tr("tutor-new"), Message::Restart));
         actions.push(action(
             tr.tr("menu-progress"),
@@ -846,9 +930,42 @@ impl App {
         .height(Length::Fill)
         .style(style::card);
 
-        column![header, exercise, self.tutor_footer(tutor)]
-            .spacing(16)
-            .into()
+        let mut page = column![header, exercise].spacing(16);
+        if has_keyboard && self.profile.config.show_keyboard {
+            page = page.push(self.keyboard_view(tutor));
+        }
+        page.push(self.tutor_footer(tutor)).into()
+    }
+
+    /// Teclado virtual con la tecla y el dedo siguientes.
+    fn keyboard_view<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
+        let Some(fingers) = &self.fingers else {
+            return Space::new().into();
+        };
+        let tr = &self.tr;
+        let next = tutor
+            .next_char()
+            .and_then(|c| hint(tutor.layout(), fingers, c));
+        let mut caption = next
+            .and_then(|h| h.finger)
+            .map(|f| finger_text(tr, f))
+            .unwrap_or_default();
+        if next.is_some_and(|h| h.shift.is_some()) {
+            caption = format!("{caption} · {}", tr.tr("hint-shift"));
+        }
+        column![
+            canvas(Keys {
+                layout: tutor.layout(),
+                fingers,
+                hint: next,
+            })
+            .width(Length::Fill)
+            .height(Length::Fixed(Keys::height())),
+            text(caption).size(14).style(style::muted),
+        ]
+        .spacing(6)
+        .align_x(Alignment::Center)
+        .into()
     }
 
     /// Pie del ejercicio: avance mientras se teclea, resultados al terminar.
@@ -1382,6 +1499,20 @@ fn styled_span(segment: Segment, p: &Palette) -> Span<'static, Message> {
         SegmentStyle::Retouched => s.color(p.retouched),
         SegmentStyle::Cursor => s.color(p.cursor).background(p.cursor_bg),
     }
+}
+
+/// Espera del dictado del dedo en el curso básico (`g_timeout_add (3000, …)` del original).
+const FINGER_TIP_DELAY: Duration = Duration::from_secs(3);
+
+/// Tarea que avisa con [`Message::FingerTip`] después de `delay`. El ejecutor de iced que se
+/// usa no trae temporizadores, así que espera un hilo aparte (hay uno a la vez).
+fn wake_after(delay: Duration) -> Task<Message> {
+    let (tx, rx) = iced::futures::channel::oneshot::channel();
+    std::thread::spawn(move || {
+        std::thread::sleep(delay);
+        let _ = tx.send(());
+    });
+    Task::perform(rx, |_| Message::FingerTip)
 }
 
 /// Traduce los eventos de teclado de iced a acciones del tutor.

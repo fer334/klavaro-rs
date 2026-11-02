@@ -198,6 +198,19 @@ impl Tutor {
         self.restart()
     }
 
+    /// Distribución de teclado.
+    pub(crate) fn layout(&self) -> &KeyboardLayout {
+        &self.layout
+    }
+
+    /// Carácter que toca teclear (ninguno si terminó).
+    pub(crate) fn next_char(&self) -> Option<char> {
+        if self.outcome.is_some() {
+            return None;
+        }
+        self.session.target().get(self.session.cursor()).copied()
+    }
+
     /// Datos del ejercicio.
     pub(crate) fn spec(&self) -> &ExerciseSpec {
         &self.spec

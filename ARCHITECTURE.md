@@ -78,6 +78,20 @@ klavaro-app ──► klavaro-i18n
 - La interfaz dicta cuando cambia la posición (ejercicio y cursor), así un error no repite
   el dictado.
 
+## Teclado virtual y dedos
+
+- `hints.rs` (app, sin iced) da, para el carácter siguiente, la tecla, el dedo
+  (`fingers_position.txt`) y el Shift de la otra mano si hace falta; espacio y Enter son de
+  los pulgares y del meñique derecho.
+- `keys.rs` (app, `gui`) dibuja el teclado con forma ISO y los colores por dedo del original
+  (`KEYB_*`), resalta la tecla siguiente y el Shift, y debajo nombra el dedo y la mano. Se
+  muestra en Básico y Adaptabilidad; el botón Teclado lo oculta (`show_keyboard`).
+- Con el modo dictado, en Básico se dice el dedo tras 3 s sin avanzar, como
+  `tutor_delayed_finger_tip`. El ejecutor de iced no tiene temporizadores: espera un hilo,
+  a lo sumo uno a la vez, que se rearma con lo que falte si la posición cambió.
+- No están las imágenes de las manos (`hands_*.png`) ni la ventana de teclado del menú con
+  la introducción.
+
 ## Progreso y Top 10
 
 - `progress.rs` (app, sin iced) arma un `Chart` con las últimas `DATA_POINTS` (50) sesiones

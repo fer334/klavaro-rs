@@ -10,7 +10,7 @@ use std::io;
 use std::path::PathBuf;
 
 use klavaro_core::generators::basic::LessonMask;
-use klavaro_core::keyboard::KeyboardLayout;
+use klavaro_core::keyboard::{FingerMap, KeyboardLayout};
 use klavaro_data::{kbd, lessons, texts};
 
 include!(concat!(env!("OUT_DIR"), "/assets.rs"));
@@ -87,6 +87,11 @@ pub(crate) fn keyboard(name: &str) -> io::Result<KeyboardLayout> {
 /// Carga las 43 lecciones del curso básico.
 pub(crate) fn basic_lessons() -> io::Result<Vec<LessonMask>> {
     lessons::parse_basic_lessons(&read("basic_lessons.txt")?).map_err(|e| invalid(e.to_string()))
+}
+
+/// Qué dedo usa cada posición del teclado.
+pub(crate) fn fingers() -> io::Result<FingerMap> {
+    lessons::parse_fingers(&read("fingers_position.txt")?).map_err(|e| invalid(e.to_string()))
 }
 
 /// Palabras de un idioma.

@@ -12,6 +12,10 @@ mod audio;
 mod exercise;
 #[cfg(feature = "gui")]
 mod gui;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod hints;
+#[cfg(feature = "gui")]
+mod keys;
 #[cfg(feature = "gui")]
 mod plot;
 mod practice;

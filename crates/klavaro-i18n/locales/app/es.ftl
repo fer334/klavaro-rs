@@ -73,3 +73,6 @@ settings-invalid = Revise los campos en rojo: la precisión y la fluidez van de 
 menu-speech-tip = Modo dictado: dice cada tecla o palabra antes de teclearla (con { $engine }).
 menu-speech-missing = El modo dictado necesita espeak o espeak-ng instalado (en macOS también sirve say).
 settings-beep = Pitido al equivocarse
+hint-left = { $finger } (mano izquierda)
+hint-right = { $finger } (mano derecha)
+hint-shift = Mayúsculas con la otra mano
