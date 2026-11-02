@@ -5,6 +5,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use iced::advanced::input_method;
 use iced::keyboard::{self, key::Named};
 use iced::widget::text::Span;
 use iced::widget::{
@@ -33,6 +34,7 @@ use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
 use crate::style;
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
+use crate::typing::Typing;
 
 /// Abre la ventana principal.
 pub(crate) fn run() -> iced::Result {
@@ -118,6 +120,8 @@ enum Message {
     LanguageSelected(String),
     KeyboardSelected(String),
     Key(Input),
+    /// Texto que entrega el método de entrada (letras combinadas con teclas muertas).
+    Typed(String),
     Back,
     Restart,
     LessonDelta(i32),
@@ -353,6 +357,7 @@ impl App {
                 Ok(())
             }
             Message::Key(input) => self.key(input),
+            Message::Typed(text) => text.chars().try_for_each(|c| self.key(Input::Char(c))),
             // Se atiende al principio porque devuelve una tarea.
             Message::FingerTip => Ok(()),
         };
@@ -930,7 +935,7 @@ impl App {
         .height(Length::Fill)
         .style(style::card);
 
-        let mut page = column![header, exercise].spacing(16);
+        let mut page = column![header, exercise, Typing].spacing(16);
         if has_keyboard && self.profile.config.show_keyboard {
             page = page.push(self.keyboard_view(tutor));
         }
@@ -1519,6 +1524,9 @@ fn wake_after(delay: Duration) -> Task<Message> {
 fn on_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
     if matches!(status, event::Status::Captured) {
         return None;
+    }
+    if let Event::InputMethod(input_method::Event::Commit(text)) = event {
+        return Some(Message::Typed(text));
     }
     let Event::Keyboard(keyboard::Event::KeyPressed {
         key,

@@ -31,6 +31,8 @@ mod speech;
 mod style;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod tutor;
+#[cfg(feature = "gui")]
+mod typing;
 
 use std::io::{self, Write};
 use std::process::ExitCode;

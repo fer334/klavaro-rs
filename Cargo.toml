@@ -21,7 +21,7 @@ klavaro-core = { path = "crates/klavaro-core" }
 klavaro-data = { path = "crates/klavaro-data" }
 klavaro-store = { path = "crates/klavaro-store" }
 klavaro-i18n = { path = "crates/klavaro-i18n" }
-iced = { version = "0.14", features = ["canvas"] }
+iced = { version = "0.14", features = ["advanced", "canvas"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
