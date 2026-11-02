@@ -18,7 +18,7 @@ use std::io;
 use std::path::PathBuf;
 
 pub use config::Config;
-pub use history::{History, SessionRecord};
+pub use history::{History, SessionFilter, SessionRecord};
 pub use paths::Paths;
 
 /// Error de persistencia.

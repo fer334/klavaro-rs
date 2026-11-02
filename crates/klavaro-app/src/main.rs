@@ -10,9 +10,13 @@ mod assets;
 mod exercise;
 #[cfg(feature = "gui")]
 mod gui;
+#[cfg(feature = "gui")]
+mod plot;
 mod practice;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod profile;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod progress;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod tutor;
 

@@ -3,9 +3,10 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fase 4. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
+> Estado: fase 5. Interfaz en iced (menú, ejercicio con colores y cursor, resultados) que
 > guarda la configuración, el historial y el Top 10 de Fluidez, importa la primera vez los
-> datos del Klavaro original y muestra los textos en los 40 idiomas del original. También hay una práctica alternativa en la terminal:
+> datos del Klavaro original, muestra los textos en los 40 idiomas del original y tiene
+> gráficos de progreso y la tabla del Top 10 (teclas P y T en el menú). También hay una práctica alternativa en la terminal:
 >
 > ```sh
 > cargo run                                   # abre la ventana

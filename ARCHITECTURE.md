@@ -43,6 +43,18 @@ klavaro-app ──► klavaro-i18n
 - Si el disco falla, la app sigue con la configuración en memoria y un historial en memoria,
   y muestra el error.
 
+## Progreso y Top 10
+
+- `progress.rs` (app, sin iced) arma un `Chart` con las últimas `DATA_POINTS` (50) sesiones
+  vía `History::sessions(&SessionFilter, …)`, filtradas como en `plot.c`: Básico por lección
+  (0 = todas) y teclado, Adaptabilidad por teclado, Velocidad y Fluidez por idioma. Fluidez
+  agrega los gráficos de fluidez y de puntaje (tabla `scores`). El eje vertical parte del
+  rango del original y crece si un valor o la meta no entran.
+- `plot.rs` (app, `gui`) lo dibuja con el `canvas` de iced, con los colores de `plot.h`, la
+  meta como línea gris y la fecha y el valor del punto más cercano al mouse.
+- La pantalla Top 10 muestra el ranking local del idioma de los textos; los puntajes externos
+  (descarga y publicación por la web) no se implementan.
+
 ## Fidelidad con Klavaro 3.14
 
 Las fórmulas y constantes se verificaron contra el código original en `upstream/`

@@ -13,6 +13,7 @@ use klavaro_store::history::ScoreRecord;
 use klavaro_store::{Config, History, Paths, SessionRecord, StoreError, import, paths};
 
 use crate::exercise::ExerciseSpec;
+use crate::progress::{Chart, ChartQuery};
 use crate::tutor::Outcome;
 
 /// Qué pasó al registrar un ejercicio terminado.
@@ -192,8 +193,15 @@ impl Profile {
         }
     }
 
+    /// Gráfico de progreso (vacío si no hay historial).
+    pub(crate) fn chart(&self, q: &ChartQuery) -> Result<Chart, StoreError> {
+        match &self.history {
+            Some(h) => Chart::load(h, &self.config.goals, q),
+            None => Ok(Chart::new(q.metric, Vec::new(), None)),
+        }
+    }
+
     /// Top 10 de un idioma.
-    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn ranking(&self, language: &str) -> Result<Ranking, StoreError> {
         self.history
             .as_ref()
@@ -330,7 +338,7 @@ mod tests {
         assert_eq!(
             p.history()
                 .expect("historial")
-                .recent_scores(5)
+                .recent_scores(None, 5)
                 .expect("puntajes")
                 .len(),
             1

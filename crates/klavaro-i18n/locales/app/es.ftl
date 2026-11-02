@@ -6,7 +6,7 @@ menu-interface-language = Interfaz:
 menu-text-language = Textos:
 menu-colors-dark = Colores oscuros
 menu-colors-light = Colores claros
-menu-shortcuts = Atajos: 1–4 abren un módulo · Ctrl+A cambia los colores
+menu-shortcuts = Atajos: 1–4 abren un módulo · P progreso · T Top 10 · Ctrl+A cambia los colores
 tutor-new = Nuevo (Esc)
 tutor-lesson-n = Lección { $lesson }
 tutor-hint = { $done }/{ $total } · Esc: nuevo ejercicio · Ctrl+A: colores
@@ -51,3 +51,8 @@ comment-velo-speed-racer = ¡Muy bien, Meteoro! ¿Le da miedo llegar a { $target
 comment-velo-kung-fu =
     ¡Maestría de kung-fu!
     ¿Puede volar a { $target } PPM?
+progress-all-lessons = Todas las lecciones
+progress-empty = Todavía no hay sesiones para graficar.
+progress-sessions = Últimas { $count } sesiones · { $first } – { $last }
+progress-goal = Meta: { $value }
+ranking-place = #

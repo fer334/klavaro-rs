@@ -19,3 +19,6 @@ menu-progress = Edistyminen
 tutor-restart-tip = Aloita harjoitus alusta painamalla tästä. Pikanäppäin: [Ctrl-R]
 tutor-lesson = Oppitunti:
 tutor-keys = Näppäimet:
+progress-accuracy = Tarkkuus
+progress-speed = Nopeus
+progress-fluidity = Sujuvuus

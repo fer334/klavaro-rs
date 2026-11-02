@@ -102,6 +102,31 @@ impl SessionRecord {
     }
 }
 
+/// Qué sesiones leer con [`History::sessions`]. Los campos en `None` no filtran.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionFilter {
+    /// Módulo.
+    pub module: Module,
+    /// Número de lección (Básico).
+    pub lesson: Option<u16>,
+    /// Distribución de teclado.
+    pub keyboard: Option<String>,
+    /// Idioma de los textos.
+    pub language: Option<String>,
+}
+
+impl SessionFilter {
+    /// Todas las sesiones de un módulo.
+    pub fn module(module: Module) -> Self {
+        Self {
+            module,
+            lesson: None,
+            keyboard: None,
+            language: None,
+        }
+    }
+}
+
 /// Un puntaje de Fluidez (`scores_fluid.txt`), haya entrado o no al Top 10.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoreRecord {
@@ -178,31 +203,55 @@ impl History {
     ///
     /// Si falla la lectura.
     pub fn recent(&self, module: Module, limit: usize) -> Result<Vec<SessionRecord>> {
+        self.sessions(&SessionFilter::module(module), limit)
+    }
+
+    /// Las últimas `limit` sesiones que cumplen el filtro, de la más vieja a la más nueva.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la lectura.
+    pub fn sessions(&self, filter: &SessionFilter, limit: usize) -> Result<Vec<SessionRecord>> {
         let mut stmt = self.conn.prepare(
             "SELECT at, accuracy, wpm, fluidity, touches, errors, elapsed_ms, lesson, keyboard,
                     language
-             FROM sessions WHERE module = ?1 ORDER BY at DESC, id DESC LIMIT ?2",
+             FROM sessions
+             WHERE module = ?1
+               AND (?2 IS NULL OR CAST(lesson AS INTEGER) = ?2)
+               AND (?3 IS NULL OR keyboard = ?3)
+               AND (?4 IS NULL OR language = ?4)
+             ORDER BY at DESC, id DESC LIMIT ?5",
         )?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let module = filter.module;
         let mut out = stmt
-            .query_map(params![module_key(module), limit], |row| {
-                Ok(SessionRecord {
-                    module,
-                    at: row.get(0)?,
-                    accuracy: row.get(1)?,
-                    wpm: row.get(2)?,
-                    fluidity: row.get(3)?,
-                    touches: row.get(4)?,
-                    errors: row.get(5)?,
-                    elapsed: row
-                        .get::<_, Option<i64>>(6)?
-                        .and_then(|ms| u64::try_from(ms).ok())
-                        .map(Duration::from_millis),
-                    lesson: row.get(7)?,
-                    keyboard: row.get(8)?,
-                    language: row.get(9)?,
-                })
-            })?
+            .query_map(
+                params![
+                    module_key(module),
+                    filter.lesson,
+                    filter.keyboard,
+                    filter.language,
+                    limit
+                ],
+                |row| {
+                    Ok(SessionRecord {
+                        module,
+                        at: row.get(0)?,
+                        accuracy: row.get(1)?,
+                        wpm: row.get(2)?,
+                        fluidity: row.get(3)?,
+                        touches: row.get(4)?,
+                        errors: row.get(5)?,
+                        elapsed: row
+                            .get::<_, Option<i64>>(6)?
+                            .and_then(|ms| u64::try_from(ms).ok())
+                            .map(Duration::from_millis),
+                        lesson: row.get(7)?,
+                        keyboard: row.get(8)?,
+                        language: row.get(9)?,
+                    })
+                },
+            )?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         out.reverse();
         Ok(out)
@@ -283,18 +332,21 @@ impl History {
         Ok(())
     }
 
-    /// Los últimos `limit` puntajes de Fluidez, del más viejo al más nuevo.
+    /// Los últimos `limit` puntajes de Fluidez (de un idioma, si se indica), del más viejo
+    /// al más nuevo.
     ///
     /// # Errors
     ///
     /// Si falla la lectura.
-    pub fn recent_scores(&self, limit: usize) -> Result<Vec<ScoreRecord>> {
+    pub fn recent_scores(&self, language: Option<&str>, limit: usize) -> Result<Vec<ScoreRecord>> {
         let mut stmt = self.conn.prepare(
-            "SELECT at, score, chars, language FROM scores ORDER BY at DESC, rowid DESC LIMIT ?1",
+            "SELECT at, score, chars, language FROM scores
+             WHERE ?1 IS NULL OR language = ?1
+             ORDER BY at DESC, rowid DESC LIMIT ?2",
         )?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
         let mut out = stmt
-            .query_map([limit], |row| {
+            .query_map(params![language, limit], |row| {
                 Ok(ScoreRecord {
                     at: row.get(0)?,
                     score: row.get(1)?,
@@ -419,6 +471,38 @@ mod tests {
     }
 
     #[test]
+    fn filters_sessions_by_lesson_keyboard_and_language() {
+        let h = History::in_memory().expect("base");
+        let lesson = |at, lesson: &str, keyboard: &str| {
+            let mut r = session(Module::Basic, at, 30.0);
+            r.lesson = Some(lesson.into());
+            r.keyboard = Some(keyboard.into());
+            h.record(&r).expect("guardar");
+        };
+        lesson(1, "03", "qwerty_es");
+        lesson(2, "3", "qwerty_es");
+        lesson(3, "04", "qwerty_es");
+        lesson(4, "03", "dvorak");
+        let filter = SessionFilter {
+            lesson: Some(3),
+            keyboard: Some("qwerty_es".into()),
+            ..SessionFilter::module(Module::Basic)
+        };
+        let found = h.sessions(&filter, 50).expect("leer");
+        assert_eq!(found.iter().map(|r| r.at).collect::<Vec<_>>(), [1, 2]);
+
+        let mut velo = session(Module::Velocity, 5, 40.0);
+        velo.language = Some("es".into());
+        h.record(&velo).expect("guardar");
+        let filter = |l: &str| SessionFilter {
+            language: Some(l.into()),
+            ..SessionFilter::module(Module::Velocity)
+        };
+        assert_eq!(h.sessions(&filter("es"), 50).expect("leer").len(), 1);
+        assert_eq!(h.sessions(&filter("C"), 50).expect("leer").len(), 0);
+    }
+
+    #[test]
     fn record_all_is_atomic_and_keeps_missing_fields() {
         let mut h = History::in_memory().expect("base");
         let mut r = session(Module::Adaptability, 1, 20.0);
@@ -456,8 +540,10 @@ mod tests {
             })
             .expect("guardar");
         }
-        let scores = h.recent_scores(2).expect("leer");
+        let scores = h.recent_scores(None, 2).expect("leer");
         assert_eq!(scores.iter().map(|s| s.at).collect::<Vec<_>>(), [2, 3]);
+        assert_eq!(h.recent_scores(Some("es"), 10).expect("leer").len(), 3);
+        assert_eq!(h.recent_scores(Some("C"), 10).expect("leer").len(), 0);
         assert_eq!(h.meta("x").expect("leer"), None);
         h.set_meta("x", "1").expect("guardar");
         h.set_meta("x", "2").expect("guardar");

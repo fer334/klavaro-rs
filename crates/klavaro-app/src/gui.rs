@@ -7,15 +7,22 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use iced::keyboard::{self, key::Named};
 use iced::widget::text::Span;
-use iced::widget::{button, column, container, pick_list, rich_text, row, scrollable, span, text};
+use iced::widget::{
+    Space, button, canvas, column, container, pick_list, rich_text, row, scrollable, span, text,
+};
 use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, Theme, event};
 
 use klavaro_core::Module;
+use klavaro_core::generators::basic::MAX_LESSONS;
+use klavaro_core::ranking::RankingEntry;
 use klavaro_i18n::Translator;
+use klavaro_store::date::format_date_time;
 
 use crate::assets;
 use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, recorded_text};
+use crate::plot::Plot;
 use crate::profile::Profile;
+use crate::progress::{Chart, ChartQuery, Metric};
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 
 /// Abre la ventana principal.
@@ -51,6 +58,17 @@ fn ui_languages() -> Vec<UiLanguage> {
 enum Screen {
     Menu,
     Tutor(Box<Tutor>),
+    Progress(ProgressView),
+    Top10(Vec<RankingEntry>),
+}
+
+/// Estado de la pantalla de progreso.
+struct ProgressView {
+    module: Module,
+    metric: Metric,
+    /// Lección del curso básico (0 = todas).
+    lesson: u16,
+    chart: Chart,
 }
 
 struct App {
@@ -82,6 +100,11 @@ enum Message {
     Restart,
     LessonDelta(i32),
     ToggleTheme,
+    /// Abre el progreso del módulo (o del último usado).
+    Progress(Option<Module>),
+    ProgressMetric(Metric),
+    ProgressLesson(i32),
+    Top10,
 }
 
 impl App {
@@ -179,6 +202,8 @@ impl App {
             Screen::Tutor(t) => {
                 format!("klavaro-rs · {}", module_name(&self.tr, t.spec().module))
             }
+            Screen::Progress(_) => format!("klavaro-rs · {}", self.tr.tr("menu-progress")),
+            Screen::Top10(_) => format!("klavaro-rs · {}", self.tr.tr("menu-top10")),
         }
     }
 
@@ -204,6 +229,9 @@ impl App {
             Message::LanguageSelected(l) => {
                 self.language = l;
                 self.persist();
+                if matches!(self.screen, Screen::Top10(_)) {
+                    self.show_top10();
+                }
                 Ok(())
             }
             Message::KeyboardSelected(k) => {
@@ -225,7 +253,7 @@ impl App {
                     self.note = None;
                     t.restart()
                 }
-                Screen::Menu => Ok(()),
+                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) => Ok(()),
             },
             Message::LessonDelta(delta) => match &mut self.screen {
                 Screen::Tutor(t) => {
@@ -235,8 +263,38 @@ impl App {
                     self.sync_lesson();
                     r
                 }
-                Screen::Menu => Ok(()),
+                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) => Ok(()),
             },
+            Message::Progress(module) => {
+                let module = module
+                    .or(self.profile.config.last_module)
+                    .unwrap_or(Module::Basic);
+                // Al cambiar de módulo se mantiene el gráfico elegido si existe en el nuevo.
+                let metric = match &self.screen {
+                    Screen::Progress(v) => v.metric,
+                    _ => Metric::Accuracy,
+                };
+                self.show_progress(module, metric, self.lesson);
+                Ok(())
+            }
+            Message::ProgressMetric(metric) => {
+                if let Screen::Progress(v) = &self.screen {
+                    self.show_progress(v.module, metric, v.lesson);
+                }
+                Ok(())
+            }
+            Message::ProgressLesson(delta) => {
+                if let Screen::Progress(v) = &self.screen {
+                    let lesson = (i32::from(v.lesson) + delta).clamp(0, i32::from(MAX_LESSONS));
+                    let lesson = u16::try_from(lesson).unwrap_or(0);
+                    self.show_progress(v.module, v.metric, lesson);
+                }
+                Ok(())
+            }
+            Message::Top10 => {
+                self.show_top10();
+                Ok(())
+            }
             Message::Key(input) => self.key(input),
         };
         if let Err(e) = result {
@@ -278,6 +336,45 @@ impl App {
         }
     }
 
+    /// Abre (o actualiza) el gráfico de progreso.
+    fn show_progress(&mut self, module: Module, metric: Metric, lesson: u16) {
+        // Fluidez y puntaje sólo existen en el módulo de Fluidez.
+        let metric = if Metric::for_module(module).contains(&metric) {
+            metric
+        } else {
+            Metric::Accuracy
+        };
+        let query = ChartQuery {
+            module,
+            metric,
+            lesson,
+            keyboard: self.keyboard.clone(),
+            language: self.language.clone(),
+        };
+        let chart = self.profile.chart(&query).unwrap_or_else(|e| {
+            self.error = Some(e.to_string());
+            Chart::new(metric, Vec::new(), None)
+        });
+        self.screen = Screen::Progress(ProgressView {
+            module,
+            metric,
+            lesson,
+            chart,
+        });
+    }
+
+    /// Abre (o actualiza) el Top 10 del idioma de los textos.
+    fn show_top10(&mut self) {
+        let entries = match self.profile.ranking(&self.language) {
+            Ok(r) => r.entries().to_vec(),
+            Err(e) => {
+                self.error = Some(e.to_string());
+                Vec::new()
+            }
+        };
+        self.screen = Screen::Top10(entries);
+    }
+
     fn key(&mut self, input: Input) -> std::io::Result<()> {
         match &mut self.screen {
             Screen::Tutor(t) => {
@@ -296,8 +393,31 @@ impl App {
                 }
                 Ok(())
             }
+            Screen::Progress(_) | Screen::Top10(_) => {
+                match input {
+                    Input::Restart => self.screen = Screen::Menu,
+                    Input::ToggleTheme => {
+                        self.dark = !self.dark;
+                        self.persist();
+                    }
+                    _ => {}
+                }
+                Ok(())
+            }
             Screen::Menu => {
-                // En el menú, 1–4 abren cada módulo.
+                // En el menú, 1–4 abren cada módulo, P el progreso y T el Top 10.
+                match input {
+                    Input::Char('p' | 'P') => {
+                        let module = self.profile.config.last_module.unwrap_or(Module::Basic);
+                        self.show_progress(module, Metric::Accuracy, self.lesson);
+                        return Ok(());
+                    }
+                    Input::Char('t' | 'T') => {
+                        self.show_top10();
+                        return Ok(());
+                    }
+                    _ => {}
+                }
                 if let Input::Char(c) = input {
                     let index = c.to_digit(10).and_then(|d| usize::try_from(d).ok());
                     if let Some(&m) = index.and_then(|d| Module::ALL.get(d.wrapping_sub(1))) {
@@ -317,6 +437,8 @@ impl App {
         let body = match &self.screen {
             Screen::Menu => self.view_menu(),
             Screen::Tutor(t) => self.view_tutor(t),
+            Screen::Progress(v) => self.view_progress(v),
+            Screen::Top10(entries) => self.view_top10(entries),
         };
         let mut page = column![body].spacing(12).padding(24);
         if let (Screen::Menu, Some(n)) = (&self.screen, &self.notice) {
@@ -380,7 +502,12 @@ impl App {
             labeled(tr.tr("menu-text-language"), language.into()),
             text(tr.tr("menu-text-language-tip")).size(12),
             labeled(tr.tr("menu-keyboard"), keyboard.into()),
-            colors,
+            row![
+                button(text(tr.tr("menu-progress"))).on_press(Message::Progress(None)),
+                button(text(tr.tr("menu-top10"))).on_press(Message::Top10),
+                colors,
+            ]
+            .spacing(8),
             text(tr.tr("menu-shortcuts")).size(13),
         ]
         .spacing(16)
@@ -400,6 +527,7 @@ impl App {
             ))
             .size(18),
             button(text(tr.tr("tutor-new"))).on_press(Message::Restart),
+            button(text(tr.tr("menu-progress"))).on_press(Message::Progress(Some(spec.module))),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -476,6 +604,178 @@ impl App {
         };
 
         column![header, exercise, footer].spacing(12).into()
+    }
+    fn view_progress<'a>(&'a self, v: &'a ProgressView) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let choice = |label: String, active: bool, msg: Message| {
+            button(text(label))
+                .style(if active {
+                    button::primary
+                } else {
+                    button::secondary
+                })
+                .on_press(msg)
+        };
+        let modules = row(Module::ALL.iter().map(|&m| {
+            choice(
+                module_name(tr, m),
+                m == v.module,
+                Message::Progress(Some(m)),
+            )
+            .into()
+        }))
+        .spacing(6);
+        let metrics = row(Metric::for_module(v.module).iter().map(|&m| {
+            choice(
+                metric_label(tr, m),
+                m == v.metric,
+                Message::ProgressMetric(m),
+            )
+            .into()
+        }))
+        .spacing(6);
+
+        // Igual que el título de la ventana del original: teclado o idioma según el módulo.
+        let scope = match v.module {
+            Module::Basic | Module::Adaptability => self.keyboard.clone(),
+            Module::Velocity | Module::Fluidity => self.language.clone(),
+        };
+        let mut filters = row![text(scope).size(14)]
+            .spacing(8)
+            .align_y(Alignment::Center);
+        if v.module == Module::Basic {
+            let lesson = if v.lesson == 0 {
+                tr.tr("progress-all-lessons")
+            } else {
+                tr.tr_args("tutor-lesson-n", &[("lesson", &v.lesson.to_string())])
+            };
+            filters = filters.push(
+                row![
+                    button(text("−")).on_press(Message::ProgressLesson(-1)),
+                    text(lesson),
+                    button(text("+")).on_press(Message::ProgressLesson(1)),
+                ]
+                .spacing(6)
+                .align_y(Alignment::Center),
+            );
+        }
+
+        let chart = &v.chart;
+        let summary = match (chart.points.first(), chart.points.last()) {
+            (Some(first), Some(last)) => tr.tr_args(
+                "progress-sessions",
+                &[
+                    ("count", &chart.points.len().to_string()),
+                    ("first", &format_date_time(first.at)),
+                    ("last", &format_date_time(last.at)),
+                ],
+            ),
+            _ => tr.tr("progress-empty"),
+        };
+        let mut info = row![text(summary).size(13)].spacing(16);
+        if let Some(goal) = chart.goal {
+            info = info.push(
+                text(tr.tr_args("progress-goal", &[("value", &format!("{goal:.0}"))])).size(13),
+            );
+        }
+        let plot = Plot {
+            chart,
+            unit: metric_unit(tr, v.metric),
+        };
+
+        column![
+            row![
+                button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
+                text(tr.tr("menu-progress")).size(22),
+                Space::new().width(Length::Fill),
+                button(text(tr.tr("menu-top10"))).on_press(Message::Top10),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            modules,
+            metrics,
+            filters,
+            canvas(plot).width(Length::Fill).height(Length::Fill),
+            info,
+        ]
+        .spacing(10)
+        .into()
+    }
+
+    fn view_top10<'a>(&'a self, entries: &'a [RankingEntry]) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let cell = |s: String, w: f32| text(s).width(Length::Fixed(w));
+        let header = row![
+            cell(tr.tr("ranking-place"), 32.0),
+            cell(tr.tr("ranking-name"), 240.0),
+            cell(tr.tr("stats-score"), 70.0),
+            cell(tr.tr("progress-accuracy"), 90.0),
+            cell(tr.tr("progress-speed"), 90.0),
+            cell(tr.tr("progress-fluidity"), 90.0),
+            cell(tr.tr("ranking-chars"), 90.0),
+            cell(tr.tr("ranking-when"), 150.0),
+        ]
+        .spacing(8);
+        let mut table = column![header].spacing(6);
+        if entries.is_empty() {
+            table = table.push(text(tr.tr("ranking-empty")));
+        }
+        for (i, e) in entries.iter().enumerate() {
+            table = table.push(
+                row![
+                    cell(format!("{}", i + 1), 32.0),
+                    cell(e.name.clone(), 240.0),
+                    cell(format!("{:.3}", e.score), 70.0),
+                    cell(format!("{:.1}", e.accuracy), 90.0),
+                    cell(format!("{:.1}", e.wpm), 90.0),
+                    cell(format!("{:.1}", e.fluidity), 90.0),
+                    cell(e.chars.to_string(), 90.0),
+                    cell(format_date_time(e.when), 150.0),
+                ]
+                .spacing(8),
+            );
+        }
+        let language = pick_list(
+            self.languages.clone(),
+            Some(self.language.clone()),
+            Message::LanguageSelected,
+        );
+        column![
+            row![
+                button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
+                text(tr.tr("menu-top10")).size(22),
+                Space::new().width(Length::Fill),
+                button(text(tr.tr("menu-progress")))
+                    .on_press(Message::Progress(Some(Module::Fluidity))),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            row![text(tr.tr("ranking-local")).size(16), language]
+                .spacing(12)
+                .align_y(Alignment::Center),
+            scrollable(table).height(Length::Fill),
+        ]
+        .spacing(12)
+        .into()
+    }
+}
+
+/// Nombre de un gráfico con su unidad, como en el original («Precisión (%)»).
+fn metric_label(tr: &Translator, m: Metric) -> String {
+    let unit = match m {
+        Metric::Accuracy | Metric::Fluidity => "(%)".to_owned(),
+        Metric::Speed => tr.tr("progress-wpm-unit"),
+        Metric::Score => "(0-10)".to_owned(),
+    };
+    format!("{} {unit}", tr.tr(m.label_key()))
+}
+
+/// Unidad del valor señalado en el gráfico.
+fn metric_unit(tr: &Translator, m: Metric) -> String {
+    match m {
+        Metric::Accuracy | Metric::Fluidity => " %".to_owned(),
+        Metric::Speed => format!(" {}", tr.tr("progress-wpm-unit").trim_matches(['(', ')'])),
+        Metric::Score => String::new(),
     }
 }
 
