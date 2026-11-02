@@ -18,6 +18,8 @@ mod profile;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod progress;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod settings;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod tutor;
 
 use std::io::{self, Write};

@@ -8,8 +8,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use iced::keyboard::{self, key::Named};
 use iced::widget::text::Span;
 use iced::widget::{
-    Space, button, canvas, column, container, pick_list, rich_text, row, scrollable, span, text,
-    tooltip,
+    Space, button, canvas, checkbox, column, container, pick_list, rich_text, row, scrollable,
+    span, text, text_input, tooltip,
 };
 use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, Theme, event};
 
@@ -25,6 +25,7 @@ use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, reco
 use crate::plot::Plot;
 use crate::profile::Profile;
 use crate::progress::{Chart, ChartQuery, Metric};
+use crate::settings::{GoalField, SettingsForm};
 use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 
 /// Abre la ventana principal.
@@ -62,6 +63,7 @@ enum Screen {
     Tutor(Box<Tutor>),
     Progress(ProgressView),
     Top10(Vec<RankingEntry>),
+    Settings(Box<SettingsForm>),
 }
 
 /// Estado de la pantalla de progreso.
@@ -112,6 +114,13 @@ enum Message {
     ProgressMetric(Metric),
     ProgressLesson(i32),
     Top10,
+    Settings,
+    SettingsName(String),
+    SettingsParagraphs(i32),
+    SettingsAutostart(bool),
+    SettingsGoal(Module, GoalField, String),
+    SettingsDefaults,
+    SettingsSave,
 }
 
 impl App {
@@ -234,6 +243,7 @@ impl App {
             }
             Screen::Progress(_) => format!("klavaro-rs · {}", self.tr.tr("menu-progress")),
             Screen::Top10(_) => format!("klavaro-rs · {}", self.tr.tr("menu-top10")),
+            Screen::Settings(_) => format!("klavaro-rs · {}", self.tr.tr("menu-settings")),
         }
     }
 
@@ -276,7 +286,9 @@ impl App {
                     self.note = None;
                     t.toggle_special()
                 }
-                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) => Ok(()),
+                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
+                    Ok(())
+                }
             },
             Message::ToggleTheme => {
                 self.dark = !self.dark;
@@ -293,7 +305,9 @@ impl App {
                     self.note = None;
                     t.restart()
                 }
-                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) => Ok(()),
+                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
+                    Ok(())
+                }
             },
             Message::LessonDelta(delta) => match &mut self.screen {
                 Screen::Tutor(t) => {
@@ -303,8 +317,46 @@ impl App {
                     self.sync_lesson();
                     r
                 }
-                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) => Ok(()),
+                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
+                    Ok(())
+                }
             },
+            m
+            @ (Message::Progress(_) | Message::ProgressMetric(_) | Message::ProgressLesson(_)) => {
+                self.update_progress(&m);
+                Ok(())
+            }
+            Message::Top10 => {
+                self.leave_tutor();
+                self.show_top10();
+                Ok(())
+            }
+            Message::Settings => {
+                self.leave_tutor();
+                self.error = None;
+                self.screen = Screen::Settings(Box::new(SettingsForm::new(&self.profile.config)));
+                Ok(())
+            }
+            m @ (Message::SettingsName(_)
+            | Message::SettingsParagraphs(_)
+            | Message::SettingsAutostart(_)
+            | Message::SettingsGoal(..)
+            | Message::SettingsDefaults
+            | Message::SettingsSave) => {
+                self.update_settings(m);
+                Ok(())
+            }
+            Message::Key(input) => self.key(input),
+        };
+        if let Err(e) = result {
+            self.error = Some(e.to_string());
+        }
+        Task::none()
+    }
+
+    /// Mensajes de la pantalla de progreso.
+    fn update_progress(&mut self, message: &Message) {
+        match *message {
             Message::Progress(module) => {
                 let module = module
                     .or(self.profile.config.last_module)
@@ -316,13 +368,11 @@ impl App {
                 };
                 self.leave_tutor();
                 self.show_progress(module, metric, self.lesson);
-                Ok(())
             }
             Message::ProgressMetric(metric) => {
                 if let Screen::Progress(v) = &self.screen {
                     self.show_progress(v.module, metric, v.lesson);
                 }
-                Ok(())
             }
             Message::ProgressLesson(delta) => {
                 if let Screen::Progress(v) = &self.screen {
@@ -330,19 +380,46 @@ impl App {
                     let lesson = u16::try_from(lesson).unwrap_or(0);
                     self.show_progress(v.module, v.metric, lesson);
                 }
-                Ok(())
             }
-            Message::Top10 => {
-                self.leave_tutor();
-                self.show_top10();
-                Ok(())
-            }
-            Message::Key(input) => self.key(input),
-        };
-        if let Err(e) = result {
-            self.error = Some(e.to_string());
+            _ => {}
         }
-        Task::none()
+    }
+
+    /// Mensajes del formulario de preferencias.
+    fn update_settings(&mut self, message: Message) {
+        if matches!(message, Message::SettingsSave) {
+            self.save_settings();
+            return;
+        }
+        let Screen::Settings(f) = &mut self.screen else {
+            return;
+        };
+        match message {
+            Message::SettingsName(name) => f.name = name,
+            Message::SettingsParagraphs(delta) => f.add_paragraphs(delta),
+            Message::SettingsAutostart(on) => f.autostart = on,
+            Message::SettingsGoal(module, field, value) => f.set_goal(module, field, value),
+            Message::SettingsDefaults => f.default_goals(),
+            _ => {}
+        }
+    }
+
+    /// Aplica el formulario de preferencias y vuelve al menú, o marca los campos inválidos.
+    fn save_settings(&mut self) {
+        let Screen::Settings(form) = &self.screen else {
+            return;
+        };
+        match form.apply(&self.profile.config) {
+            Ok(config) => {
+                self.profile.config = config;
+                self.persist();
+                self.screen = Screen::Menu;
+                if self.error.is_none() {
+                    self.notice = Some(self.tr.tr("settings-saved"));
+                }
+            }
+            Err(_) => self.error = Some(self.tr.tr("settings-invalid")),
+        }
     }
 
     fn start(&mut self, module: Module) -> std::io::Result<()> {
@@ -448,7 +525,7 @@ impl App {
                 }
                 Ok(())
             }
-            Screen::Progress(_) | Screen::Top10(_) => {
+            Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
                 match input {
                     Input::Restart => self.screen = Screen::Menu,
                     Input::ToggleTheme => {
@@ -469,6 +546,11 @@ impl App {
                     }
                     Input::Char('t' | 'T') => {
                         self.show_top10();
+                        return Ok(());
+                    }
+                    Input::Char('s' | 'S') => {
+                        self.screen =
+                            Screen::Settings(Box::new(SettingsForm::new(&self.profile.config)));
                         return Ok(());
                     }
                     _ => {}
@@ -494,6 +576,7 @@ impl App {
             Screen::Tutor(t) => self.view_tutor(t),
             Screen::Progress(v) => self.view_progress(v),
             Screen::Top10(entries) => self.view_top10(entries),
+            Screen::Settings(form) => self.view_settings(form),
         };
         let mut page = column![body].spacing(12).padding(24);
         if let (Screen::Menu, Some(n)) = (&self.screen, &self.notice) {
@@ -560,6 +643,7 @@ impl App {
             row![
                 button(text(tr.tr("menu-progress"))).on_press(Message::Progress(None)),
                 button(text(tr.tr("menu-top10"))).on_press(Message::Top10),
+                button(text(tr.tr("menu-settings"))).on_press(Message::Settings),
                 colors,
             ]
             .spacing(8),
@@ -777,6 +861,96 @@ impl App {
         .into()
     }
 
+    fn view_settings<'a>(&'a self, form: &'a SettingsForm) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let labeled = |label: String, widget: Element<'a, Message>| {
+            row![text(label).width(Length::Fixed(220.0)), widget]
+                .spacing(8)
+                .align_y(Alignment::Center)
+        };
+        let name = text_input("", &form.name)
+            .on_input(Message::SettingsName)
+            .on_submit(Message::SettingsSave)
+            .width(Length::Fixed(260.0));
+        let paragraphs = if form.paragraphs == 0 {
+            tr.tr("settings-paragraphs-full")
+        } else {
+            form.paragraphs.to_string()
+        };
+        let paragraphs = row![
+            button(text("−")).on_press(Message::SettingsParagraphs(-1)),
+            text(paragraphs).width(Length::Fixed(120.0)).center(),
+            button(text("+")).on_press(Message::SettingsParagraphs(1)),
+        ]
+        .spacing(6)
+        .align_y(Alignment::Center);
+
+        let cell = 110.0;
+        let fields = [GoalField::Accuracy, GoalField::Speed, GoalField::Fluidity];
+        let header = row![Space::new().width(Length::Fixed(220.0))]
+            .extend(fields.iter().map(|&f| {
+                text(goal_field_label(tr, f))
+                    .width(Length::Fixed(cell))
+                    .into()
+            }))
+            .spacing(8);
+        let mut goals = column![header].spacing(6);
+        for module in Module::ALL {
+            let input = form.goal(module);
+            let mut line = row![text(module_name(tr, module)).width(Length::Fixed(220.0))]
+                .spacing(8)
+                .align_y(Alignment::Center);
+            for field in fields {
+                let widget: Element<'a, Message> = match input.get(field) {
+                    Some(value) => {
+                        let invalid = form.is_invalid(module, field);
+                        text_input("", value)
+                            .on_input(move |v| Message::SettingsGoal(module, field, v))
+                            .on_submit(Message::SettingsSave)
+                            .width(Length::Fixed(cell))
+                            .style(move |theme: &Theme, status| {
+                                let mut style = text_input::default(theme, status);
+                                if invalid {
+                                    style.border.color = Color::from_rgb(0.8, 0.1, 0.1);
+                                    style.border.width = 2.0;
+                                }
+                                style
+                            })
+                            .into()
+                    }
+                    None => Space::new().width(Length::Fixed(cell)).into(),
+                };
+                line = line.push(widget);
+            }
+            goals = goals.push(line);
+        }
+
+        column![
+            row![
+                button(text(format!("← {}", tr.tr("menu-back")))).on_press(Message::Back),
+                text(tr.tr("menu-settings")).size(22),
+                Space::new().width(Length::Fill),
+                button(text(tr.tr("settings-save")))
+                    .style(button::primary)
+                    .on_press(Message::SettingsSave),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center),
+            labeled(tr.tr("settings-name"), name.into()),
+            text(tr.tr("settings-name-tip")).size(12),
+            labeled(tr.tr("tutor-paragraphs"), paragraphs.into()),
+            checkbox(form.autostart)
+                .label(tr.tr("settings-autostart"))
+                .on_toggle(Message::SettingsAutostart),
+            text(tr.tr("settings-goals")).size(18),
+            goals,
+            text(tr.tr("settings-goals-tip")).size(12),
+            button(text(tr.tr("settings-defaults"))).on_press(Message::SettingsDefaults),
+        ]
+        .spacing(14)
+        .into()
+    }
+
     fn view_top10<'a>(&'a self, entries: &'a [RankingEntry]) -> Element<'a, Message> {
         let tr = &self.tr;
         let cell = |s: String, w: f32| text(s).width(Length::Fixed(w));
@@ -832,6 +1006,15 @@ impl App {
         ]
         .spacing(12)
         .into()
+    }
+}
+
+/// Encabezado de una columna de metas, con su unidad.
+fn goal_field_label(tr: &Translator, f: GoalField) -> String {
+    match f {
+        GoalField::Accuracy => metric_label(tr, Metric::Accuracy),
+        GoalField::Speed => metric_label(tr, Metric::Speed),
+        GoalField::Fluidity => metric_label(tr, Metric::Fluidity),
     }
 }
 

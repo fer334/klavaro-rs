@@ -57,6 +57,15 @@ klavaro-app ──► klavaro-i18n
   segundo sólo existe el promedio por tecla, que se carga como tres tiempos iguales (como
   `accur_init`).
 
+## Preferencias
+
+- `settings.rs` (app, sin iced) es el formulario: los números se editan como texto y se
+  validan al guardar con los rangos de `Config::sanitized` (acepta coma decimal). Los
+  campos inválidos se marcan y no se guarda nada hasta corregirlos.
+- Se editan el nombre del Top 10, los párrafos de Fluidez, el inicio automático y la
+  precisión, velocidad y fluidez de cada meta. Los niveles de los comentarios, la voz y el
+  sonido siguen sólo en `config.toml` (la voz y el sonido todavía no están implementados).
+
 ## Progreso y Top 10
 
 - `progress.rs` (app, sin iced) arma un `Chart` con las últimas `DATA_POINTS` (50) sesiones
