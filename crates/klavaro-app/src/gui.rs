@@ -9,12 +9,14 @@ use iced::keyboard::{self, key::Named};
 use iced::widget::text::Span;
 use iced::widget::{
     Space, button, canvas, column, container, pick_list, rich_text, row, scrollable, span, text,
+    tooltip,
 };
 use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, Theme, event};
 
 use klavaro_core::Module;
 use klavaro_core::generators::basic::MAX_LESSONS;
 use klavaro_core::ranking::RankingEntry;
+use klavaro_core::tracker::KeyTracker;
 use klavaro_i18n::Translator;
 use klavaro_store::date::format_date_time;
 
@@ -87,6 +89,9 @@ struct App {
     profile: Profile,
     tr: Translator,
     clock: Instant,
+    /// Errores y tiempos por tecla del teclado elegido. Durante un ejercicio, el tutor tiene
+    /// la copia al día ([`App::leave_tutor`] la recupera).
+    tracker: KeyTracker,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +105,8 @@ enum Message {
     Restart,
     LessonDelta(i32),
     ToggleTheme,
+    /// Activa o desactiva la sesión especial de Adaptabilidad.
+    ToggleSpecial,
     /// Abre el progreso del módulo (o del último usado).
     Progress(Option<Module>),
     ProgressMetric(Metric),
@@ -150,7 +157,9 @@ impl App {
             screen: Screen::Menu,
             clock: Instant::now(),
             profile,
+            tracker: KeyTracker::new(),
         };
+        app.load_tracker();
         if app.profile.config.autostart
             && let Some(m) = app.profile.config.last_module
             && let Err(e) = app.start(m)
@@ -169,6 +178,24 @@ impl App {
         c.alt_colors = self.dark;
         if let Err(e) = self.profile.save_config() {
             self.error = Some(e.to_string());
+        }
+    }
+
+    /// Lee el rastreo por tecla del teclado elegido.
+    fn load_tracker(&mut self) {
+        self.tracker = self.profile.tracker(&self.keyboard).unwrap_or_else(|e| {
+            self.error = Some(e.to_string());
+            KeyTracker::new()
+        });
+    }
+
+    /// Sale de la pantalla del tutor (si está en ella): recupera y guarda el rastreo.
+    fn leave_tutor(&mut self) {
+        if let Screen::Tutor(t) = std::mem::replace(&mut self.screen, Screen::Menu) {
+            self.tracker = t.into_tracker();
+            if let Err(e) = self.profile.save_tracker(&self.keyboard, &self.tracker) {
+                self.error = Some(e.to_string());
+            }
         }
     }
 
@@ -193,6 +220,9 @@ impl App {
         {
             Ok(r) => self.note = recorded_text(&self.tr, r),
             Err(e) => self.error = Some(e.to_string()),
+        }
+        if let Err(e) = self.profile.save_tracker(&self.keyboard, t.tracker()) {
+            self.error = Some(e.to_string());
         }
     }
 
@@ -235,16 +265,26 @@ impl App {
                 Ok(())
             }
             Message::KeyboardSelected(k) => {
+                self.leave_tutor();
                 self.keyboard = k;
                 self.persist();
+                self.load_tracker();
                 Ok(())
             }
+            Message::ToggleSpecial => match &mut self.screen {
+                Screen::Tutor(t) => {
+                    self.note = None;
+                    t.toggle_special()
+                }
+                Screen::Menu | Screen::Progress(_) | Screen::Top10(_) => Ok(()),
+            },
             Message::ToggleTheme => {
                 self.dark = !self.dark;
                 self.persist();
                 Ok(())
             }
             Message::Back => {
+                self.leave_tutor();
                 self.screen = Screen::Menu;
                 Ok(())
             }
@@ -274,6 +314,7 @@ impl App {
                     Screen::Progress(v) => v.metric,
                     _ => Metric::Accuracy,
                 };
+                self.leave_tutor();
                 self.show_progress(module, metric, self.lesson);
                 Ok(())
             }
@@ -292,6 +333,7 @@ impl App {
                 Ok(())
             }
             Message::Top10 => {
+                self.leave_tutor();
                 self.show_top10();
                 Ok(())
             }
@@ -315,7 +357,15 @@ impl App {
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_secs());
-        let tutor = Tutor::new(spec, layout, config.goals.clone(), seed)?;
+        self.leave_tutor();
+        let config = &self.profile.config;
+        let tutor = Tutor::new(
+            spec,
+            layout,
+            config.goals.clone(),
+            seed,
+            self.tracker.clone(),
+        )?;
         self.screen = Screen::Tutor(Box::new(tutor));
         self.error = None;
         self.note = None;
@@ -351,7 +401,12 @@ impl App {
             keyboard: self.keyboard.clone(),
             language: self.language.clone(),
         };
-        let chart = self.profile.chart(&query).unwrap_or_else(|e| {
+        let chart = if metric.per_key() {
+            Ok(Chart::per_key(metric, &self.tracker))
+        } else {
+            self.profile.chart(&query)
+        };
+        let chart = chart.unwrap_or_else(|e| {
             self.error = Some(e.to_string());
             Chart::new(metric, Vec::new(), None)
         });
@@ -531,6 +586,19 @@ impl App {
         ]
         .spacing(12)
         .align_y(Alignment::Center);
+        // Como el original, el botón de la sesión especial aparece cuando conviene.
+        if tutor.special_suggested().is_some() || tutor.special() {
+            let label = tr.tr(if tutor.special() {
+                "tutor-special-on"
+            } else {
+                "tutor-special"
+            });
+            header = header.push(tooltip(
+                button(text(label)).on_press(Message::ToggleSpecial),
+                container(text(tr.tr("tutor-special-tip")).size(13)).padding(6),
+                tooltip::Position::Bottom,
+            ));
+        }
         if spec.module == Module::Basic {
             header = header.push(
                 row![
@@ -662,6 +730,13 @@ impl App {
 
         let chart = &v.chart;
         let summary = match (chart.points.first(), chart.points.last()) {
+            (Some(_), _) if v.metric.per_key() => tr.tr_args(
+                "progress-keys",
+                &[
+                    ("count", &chart.points.len().to_string()),
+                    ("keyboard", &self.keyboard),
+                ],
+            ),
             (Some(first), Some(last)) => tr.tr_args(
                 "progress-sessions",
                 &[
@@ -766,6 +841,8 @@ fn metric_label(tr: &Translator, m: Metric) -> String {
         Metric::Accuracy | Metric::Fluidity => "(%)".to_owned(),
         Metric::Speed => tr.tr("progress-wpm-unit"),
         Metric::Score => "(0-10)".to_owned(),
+        // «Touch times (s)» ya trae la unidad.
+        Metric::Errors | Metric::TouchTimes => return tr.tr(m.label_key()),
     };
     format!("{} {unit}", tr.tr(m.label_key()))
 }
@@ -775,7 +852,8 @@ fn metric_unit(tr: &Translator, m: Metric) -> String {
     match m {
         Metric::Accuracy | Metric::Fluidity => " %".to_owned(),
         Metric::Speed => format!(" {}", tr.tr("progress-wpm-unit").trim_matches(['(', ')'])),
-        Metric::Score => String::new(),
+        Metric::Score | Metric::Errors => String::new(),
+        Metric::TouchTimes => " s".to_owned(),
     }
 }
 

@@ -57,7 +57,7 @@ pub(crate) fn run(opts: &PracticeOptions) -> io::Result<()> {
         paragraphs: 1,
         language: opts.language.clone(),
     };
-    let mut text = exercise::generate(&spec, &layout, seed)?;
+    let mut text = exercise::generate(&spec, &layout, seed, None)?;
     // En la terminal, un ejercicio corto alcanza: sólo las dos primeras líneas.
     text = text.lines().take(2).flat_map(|l| [l, "\n"]).collect();
 

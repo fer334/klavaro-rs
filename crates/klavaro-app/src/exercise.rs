@@ -10,6 +10,7 @@ use klavaro_core::goals::Comment;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
+use klavaro_core::tracker::KeyTracker;
 use klavaro_i18n::Translator;
 
 use crate::assets;
@@ -26,11 +27,13 @@ pub(crate) struct ExerciseSpec {
     pub(crate) language: String,
 }
 
-/// Genera el texto de un ejercicio con los datos de `assets/`.
+/// Genera el texto de un ejercicio con los datos de `assets/`. `weak_keys` (ordenado, ver
+/// [`KeyTracker::sort`]) hace que Adaptabilidad insista en las teclas débiles.
 pub(crate) fn generate(
     spec: &ExerciseSpec,
     layout: &KeyboardLayout,
     seed: u64,
+    weak_keys: Option<&KeyTracker>,
 ) -> io::Result<String> {
     let rules = LanguageRules::new(spec.language.clone());
     let mut rng = SplitMix64::new(seed);
@@ -44,7 +47,7 @@ pub(crate) fn generate(
                 .unwrap_or_default();
             basic::generate(&set, &rules, &mut rng)
         }
-        Module::Adaptability => Some(adaptability::generate(layout, &rules, None, &mut rng)),
+        Module::Adaptability => Some(adaptability::generate(layout, &rules, weak_keys, &mut rng)),
         Module::Velocity => velocity::generate(&assets::words(&spec.language)?, &rules, &mut rng),
         Module::Fluidity => fluidity::select(
             &assets::paragraphs(&spec.language)?,
@@ -156,7 +159,7 @@ mod tests {
                 paragraphs: 3,
                 language: "es".to_owned(),
             };
-            let text = generate(&spec, &layout, 3).expect("texto");
+            let text = generate(&spec, &layout, 3, None).expect("texto");
             assert!(!text.trim().is_empty(), "{module:?}");
         }
     }

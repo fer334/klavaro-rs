@@ -53,6 +53,11 @@ impl TimeEntry {
         Self { ch, samples }
     }
 
+    /// Tiempos guardados (segundos), del más viejo al más nuevo.
+    pub fn samples(&self) -> &[f64] {
+        &self.samples
+    }
+
     /// Promedio en segundos de los tiempos válidos (entre 0 y 3 s).
     pub fn average(&self) -> f64 {
         let valid: Vec<f64> = self

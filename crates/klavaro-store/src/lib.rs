@@ -4,6 +4,7 @@
 //! - [`config`]: preferencias del usuario en `config.toml`.
 //! - [`history`]: historial de sesiones, Top 10 y puntajes de Fluidez en `SQLite`.
 //! - [`import`]: preferencias e historial del Klavaro original.
+//! - [`keys`]: errores y tiempos por tecla de cada teclado.
 //! - [`paths`]: dónde vive cada archivo según el sistema.
 //! - [`date`]: conversión entre fechas del calendario y segundos desde 1970.
 
@@ -11,6 +12,7 @@ pub mod config;
 pub mod date;
 pub mod history;
 pub mod import;
+pub mod keys;
 pub mod paths;
 
 use std::fmt;

@@ -8,7 +8,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use std::collections::BTreeMap;
+
 use klavaro_core::Module;
+use klavaro_core::tracker::{ERROR_INERTIA, ErrorEntry, KeyTracker, TimeEntry};
 use klavaro_data::legacy::{self, LegacyPreferences, StatRecord};
 
 use crate::date::parse_date_time;
@@ -17,6 +20,9 @@ use crate::{Result, io_error};
 
 /// Clave de la tabla `meta` que marca que ya se importó.
 pub const IMPORTED_KEY: &str = "legacy_imported";
+/// Marca aparte para el rastreo por tecla, que se agregó después (esquema 2): así también se
+/// importa en bases creadas antes.
+pub const KEYS_IMPORTED_KEY: &str = "legacy_keys_imported";
 
 /// Qué se importó.
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -110,6 +116,91 @@ pub fn import(history: &mut History, dirs: &[PathBuf]) -> Result<ImportReport> {
     history.record_all(&sessions)?;
     report.sessions = sessions.len();
     Ok(report)
+}
+
+/// Importa `accuracy.log_<teclado>` y `proficiency.log_<teclado>` si todavía no se hizo.
+/// Devuelve los teclados importados, o `None` si ya se había hecho. Un teclado que ya tiene
+/// rastreo propio no se toca.
+///
+/// # Errors
+///
+/// Si una carpeta o un archivo existe pero no se puede leer, o falla la base.
+pub fn import_keys_once(history: &mut History, dirs: &[PathBuf]) -> Result<Option<Vec<String>>> {
+    if history.meta(KEYS_IMPORTED_KEY)?.is_some() {
+        return Ok(None);
+    }
+    let mut found: BTreeMap<String, (Vec<ErrorEntry>, Vec<TimeEntry>)> = BTreeMap::new();
+    for dir in dirs {
+        for (keyboard, kind, path) in key_logs(dir)? {
+            let Some(text) = read_optional(&path)? else {
+                continue;
+            };
+            let entry = found.entry(keyboard).or_default();
+            match kind {
+                KeyLog::Accuracy => {
+                    entry.0 = legacy::parse_accuracy_log(&text, ERROR_INERTIA)
+                        .into_iter()
+                        .map(|r| ErrorEntry {
+                            ch: r.ch,
+                            wrong: r.wrong,
+                            correct: r.correct,
+                        })
+                        .collect();
+                }
+                // El original carga el promedio como tres tiempos iguales.
+                KeyLog::Proficiency => {
+                    entry.1 = legacy::parse_proficiency_log(&text)
+                        .into_iter()
+                        .map(|(ch, dt)| TimeEntry::new(ch, vec![dt; 3]))
+                        .collect();
+                }
+            }
+        }
+    }
+    let mut imported = Vec::new();
+    for (keyboard, (errors, times)) in found {
+        if errors.is_empty() && times.is_empty() {
+            continue;
+        }
+        if history.tracker(&keyboard)? != KeyTracker::new() {
+            continue;
+        }
+        history.save_tracker(&keyboard, &KeyTracker::from_parts(errors, times))?;
+        imported.push(keyboard);
+    }
+    history.set_meta(KEYS_IMPORTED_KEY, &imported.len().to_string())?;
+    Ok(Some(imported))
+}
+
+enum KeyLog {
+    Accuracy,
+    Proficiency,
+}
+
+/// Archivos de rastreo por tecla de una carpeta: teclado, tipo y ruta.
+fn key_logs(dir: &Path) -> Result<Vec<(String, KeyLog, PathBuf)>> {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(io_error(dir)(e)),
+    };
+    let mut out = Vec::new();
+    for entry in entries {
+        let path = entry.map_err(io_error(dir))?.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let found = if let Some(kb) = name.strip_prefix("accuracy.log_") {
+            Some((kb.to_owned(), KeyLog::Accuracy))
+        } else {
+            name.strip_prefix("proficiency.log_")
+                .map(|kb| (kb.to_owned(), KeyLog::Proficiency))
+        };
+        if let Some((keyboard, kind)) = found.filter(|(kb, _)| !kb.is_empty()) {
+            out.push((keyboard, kind, path));
+        }
+    }
+    Ok(out)
 }
 
 /// Convierte una fila de `stat_<módulo>.txt`. Las columnas 6 y 7 cambian de sentido según el
@@ -213,5 +304,32 @@ mod tests {
         let report = import(&mut h, &[tmp.path().to_path_buf()]).expect("importar");
         assert!(report.is_empty());
         assert_eq!(report.dirs, [] as [std::path::PathBuf; 0]);
+    }
+
+    #[test]
+    fn imports_key_logs_once() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        write(
+            tmp.path(),
+            "accuracy.log_qwerty_es",
+            "ñ\t 4\t 2\nq\t 1\t 9\n",
+        );
+        write(
+            tmp.path(),
+            "proficiency.log_qwerty_es",
+            "k\t0.500000\t2.0000\n",
+        );
+        write(tmp.path(), "accuracy.log_dvorak", "");
+
+        let mut h = History::in_memory().expect("base");
+        let dirs = [tmp.path().to_path_buf()];
+        let keyboards = import_keys_once(&mut h, &dirs)
+            .expect("importar")
+            .expect("primera vez");
+        assert_eq!(keyboards, ["qwerty_es"]);
+        let t = h.tracker("qwerty_es").expect("leer");
+        assert_eq!(t.error_total(), 5);
+        assert_eq!(t.times()[0].samples(), [0.5, 0.5, 0.5]);
+        assert_eq!(import_keys_once(&mut h, &dirs).expect("segunda vez"), None);
     }
 }

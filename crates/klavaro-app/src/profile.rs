@@ -9,6 +9,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use klavaro_core::Module;
 use klavaro_core::ranking::{MIN_CHARS, Ranking, RankingEntry, Rejection, text_resembles_language};
+use klavaro_core::tracker::KeyTracker;
 use klavaro_store::history::ScoreRecord;
 use klavaro_store::{Config, History, Paths, SessionRecord, StoreError, import, paths};
 
@@ -86,6 +87,9 @@ impl Profile {
             }
             Ok(_) => {}
             Err(e) => fail(e),
+        }
+        if let Err(e) = import::import_keys_once(&mut history, &paths::legacy_dirs()) {
+            notice.get_or_insert(Notice::Error(e.to_string()));
         }
         let profile = Self {
             paths: Some(paths),
@@ -190,6 +194,25 @@ impl Profile {
                 Ok(Recorded::Ranked(place))
             }
             Err(why) => Ok(Recorded::Logged(Some(why))),
+        }
+    }
+
+    /// Rastreo por tecla guardado de un teclado (vacío si no hay historial).
+    pub(crate) fn tracker(&self, keyboard: &str) -> Result<KeyTracker, StoreError> {
+        self.history
+            .as_ref()
+            .map_or_else(|| Ok(KeyTracker::new()), |h| h.tracker(keyboard))
+    }
+
+    /// Guarda el rastreo por tecla de un teclado.
+    pub(crate) fn save_tracker(
+        &mut self,
+        keyboard: &str,
+        tracker: &KeyTracker,
+    ) -> Result<(), StoreError> {
+        match self.history.as_mut() {
+            Some(h) => h.save_tracker(keyboard, tracker),
+            None => Ok(()),
         }
     }
 

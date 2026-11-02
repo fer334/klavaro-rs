@@ -5,6 +5,8 @@
 //!   sesión (precisión, velocidad, fluidez, fecha, hora, lección, teclado o idioma).
 //! - `scores_fluid.txt`: puntaje, fecha, hora, caracteres, idioma.
 //! - `preferences.ini`: formato INI de `GKeyFile`.
+//! - `accuracy.log_<teclado>`: errores por carácter (carácter, errores, aciertos).
+//! - `proficiency.log_<teclado>`: tiempo promedio por carácter (carácter, segundos, relativo).
 //!
 //! Los números usan punto decimal (el original escribe con el locale `C`).
 
@@ -84,6 +86,55 @@ pub fn parse_scores(text: &str) -> Imported<ScoreRecord> {
             language: f[4].to_owned(),
         })
     })
+}
+
+/// Errores de un carácter en `accuracy.log_<teclado>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccuracyRow {
+    /// Carácter.
+    pub ch: char,
+    /// Veces tecleado mal.
+    pub wrong: u32,
+    /// Aciertos desde el último olvido.
+    pub correct: u32,
+}
+
+/// Lee `accuracy.log_<teclado>`. Como `accur_init` del original, se detiene en la primera
+/// línea mal formada o fuera de rango (errores entre 1 y 1233, aciertos hasta `inertia`).
+pub fn parse_accuracy_log(text: &str, inertia: u32) -> Vec<AccuracyRow> {
+    lines(text)
+        .map_while(|line| {
+            let mut f = line.split_whitespace();
+            let ch = single_char(f.next()?)?;
+            let wrong: u32 = f.next()?.parse().ok()?;
+            let correct: u32 = f.next()?.parse().ok()?;
+            ((1..1234).contains(&wrong) && correct <= inertia).then_some(AccuracyRow {
+                ch,
+                wrong,
+                correct,
+            })
+        })
+        .collect()
+}
+
+/// Lee `proficiency.log_<teclado>`: carácter y tiempo promedio en segundos. Se detiene en la
+/// primera línea mal formada o con tiempo no positivo, como el original.
+pub fn parse_proficiency_log(text: &str) -> Vec<(char, f64)> {
+    lines(text)
+        .map_while(|line| {
+            let mut f = line.split_whitespace();
+            let ch = single_char(f.next()?)?;
+            let dt = number(f.next()?).ok()?;
+            f.next()?;
+            (dt > 0.0).then_some((ch, dt))
+        })
+        .collect()
+}
+
+fn single_char(s: &str) -> Option<char> {
+    let mut chars = s.chars();
+    let c = chars.next()?;
+    chars.next().is_none().then_some(c)
 }
 
 fn parse_rows<T>(
@@ -243,5 +294,37 @@ mod tests {
         assert_eq!(prefs.speech, Some(false));
         assert_eq!(prefs.lesson_font.as_deref(), Some("Monospace 14"));
         assert_eq!(prefs.colors.len(), 1);
+    }
+
+    #[test]
+    fn reads_accuracy_logs_until_the_first_bad_line() {
+        let rows = parse_accuracy_log("é\t 3\t 2\nq\t12\t 1\nx\t 0\t 1\nz\t 5\t 1\n", 10);
+        assert_eq!(
+            rows,
+            [
+                AccuracyRow {
+                    ch: 'é',
+                    wrong: 3,
+                    correct: 2
+                },
+                AccuracyRow {
+                    ch: 'q',
+                    wrong: 12,
+                    correct: 1
+                },
+            ]
+        );
+        assert_eq!(parse_accuracy_log("", 10), [] as [AccuracyRow; 0]);
+        assert_eq!(parse_accuracy_log("ab\t1\t1\n", 10), [] as [AccuracyRow; 0]);
+    }
+
+    #[test]
+    fn reads_proficiency_logs() {
+        let rows = parse_proficiency_log("k\t0.412000\t1.8000\nj\t0.229000\t1.0000\n");
+        assert_eq!(rows, [('k', 0.412), ('j', 0.229)]);
+        assert_eq!(
+            parse_proficiency_log("k\t0.0\t1.0\n"),
+            [] as [(char, f64); 0]
+        );
     }
 }

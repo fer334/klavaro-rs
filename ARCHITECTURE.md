@@ -43,6 +43,20 @@ klavaro-app ──► klavaro-i18n
 - Si el disco falla, la app sigue con la configuración en memoria y un historial en memoria,
   y muestra el error.
 
+## Rastreo por tecla
+
+- `KeyTracker` (core) acumula errores y tiempos por tecla de cada teclado. Como en el
+  original, se alimenta en todos los módulos menos el curso básico, se borran los errores al
+  cumplir la meta de Adaptabilidad y, si hay muchos errores o teclas muy lentas, aparece el
+  botón de la sesión especial, que genera palabras con las teclas débiles.
+- Durante un ejercicio lo tiene el `Tutor`; la app lo recupera al salir de la pantalla y lo
+  guarda en las tablas `key_errors` y `key_times` (esquema 2) al terminar cada ejercicio y al
+  salir. Lo tecleado en un ejercicio sin terminar se pierde si se cierra la ventana.
+- `accuracy.log_<teclado>` y `proficiency.log_<teclado>` se importan una vez, con su propia
+  marca en `meta`, para que también lleguen a bases creadas antes del esquema 2. Del
+  segundo sólo existe el promedio por tecla, que se carga como tres tiempos iguales (como
+  `accur_init`).
+
 ## Progreso y Top 10
 
 - `progress.rs` (app, sin iced) arma un `Chart` con las últimas `DATA_POINTS` (50) sesiones
@@ -52,6 +66,8 @@ klavaro-app ──► klavaro-i18n
   rango del original y crece si un valor o la meta no entran.
 - `plot.rs` (app, `gui`) lo dibuja con el `canvas` de iced, con los colores de `plot.h`, la
   meta como línea gris y la fecha y el valor del punto más cercano al mouse.
+- Adaptabilidad suma los gráficos por tecla del original (errores y tiempo de pulsación), de
+  barras, con el rastreo del teclado actual (`Chart::per_key`).
 - La pantalla Top 10 muestra el ranking local del idioma de los textos; los puntajes externos
   (descarga y publicación por la web) no se implementan.
 

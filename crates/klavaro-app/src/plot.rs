@@ -3,7 +3,8 @@
 //!
 //! Igual que en el original, cada sesión ocupa una posición fija de [`DATA_POINTS`] + 2, así
 //! que con pocas sesiones la línea queda a la izquierda. Al pasar el mouse se muestra la
-//! fecha y el valor del punto más cercano.
+//! fecha y el valor del punto más cercano. Los gráficos por tecla de Adaptabilidad son de
+//! barras, con cada tecla debajo de su barra.
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
@@ -19,6 +20,8 @@ const LEFT: f32 = 44.0;
 const TOP: f32 = 26.0;
 const RIGHT: f32 = 12.0;
 const BOTTOM: f32 = 12.0;
+/// Margen inferior de los gráficos de barras, donde van las teclas.
+const BOTTOM_KEYS: f32 = 24.0;
 
 /// Gráfico listo para el `canvas`.
 pub(crate) struct Plot<'a> {
@@ -31,7 +34,8 @@ pub(crate) struct Plot<'a> {
 /// Línea, borde y halo de la serie, como `PLOT_*_2` y `PLOT_*_3` del original.
 fn series_colors(metric: Metric) -> (Color, Color) {
     match metric {
-        Metric::Accuracy => (
+        // Las barras de errores usan el mismo verde que la precisión (`PLOT_GREEN_2`).
+        Metric::Accuracy | Metric::Errors => (
             Color::from_rgb8(0x66, 0xaa, 0x88),
             Color::from_rgb8(0xaa, 0xee, 0xbb),
         ),
@@ -47,18 +51,39 @@ fn series_colors(metric: Metric) -> (Color, Color) {
             Color::from_rgb8(0xee, 0xbb, 0x88),
             Color::from_rgb8(0xff, 0xee, 0xaa),
         ),
+        // `PLOT_PURPLE` en las barras de tiempos del original.
+        Metric::TouchTimes => (
+            Color::from_rgb8(0xbb, 0x44, 0xee),
+            Color::from_rgb8(0xdd, 0xaa, 0xff),
+        ),
     }
 }
 
 impl Plot<'_> {
     /// Área de datos dentro del `canvas`.
-    fn area(size: Size) -> Rectangle {
+    fn area(&self, size: Size) -> Rectangle {
+        let bottom = if self.chart.metric.per_key() {
+            BOTTOM_KEYS
+        } else {
+            BOTTOM
+        };
         Rectangle {
             x: LEFT,
             y: TOP,
             width: (size.width - LEFT - RIGHT).max(1.0),
-            height: (size.height - TOP - BOTTOM).max(1.0),
+            height: (size.height - TOP - bottom).max(1.0),
         }
+    }
+
+    /// Texto del punto señalado: fecha (o tecla) y valor con su unidad.
+    fn describe(&self, index: usize) -> Option<String> {
+        let p = self.chart.points.get(index)?;
+        let decimals = self.chart.metric.decimals();
+        let value = format!("{:.decimals$}{}", p.value, self.unit);
+        Some(match p.key {
+            Some(key) => format!("{key} · {value}"),
+            None => format!("{} · {value}", format_date_time(p.at)),
+        })
     }
 
     // Las coordenadas de pantalla son f32; la precisión de f64 no hace falta para dibujar.
@@ -99,8 +124,9 @@ impl<Message> canvas::Program<Message> for Plot<'_> {
         cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
         let mut frame = Frame::new(renderer, bounds.size());
-        let area = Self::area(bounds.size());
+        let area = self.area(bounds.size());
         let ink = theme.palette().text;
+        let decimals = self.chart.axis_decimals();
         let faint = Color { a: 0.25, ..ink };
 
         for v in self.chart.grid() {
@@ -110,7 +136,7 @@ impl<Message> canvas::Program<Message> for Plot<'_> {
                 Stroke::default().with_color(faint).with_width(1.0),
             );
             frame.fill_text(Text {
-                content: format!("{v:.0}"),
+                content: format!("{v:.decimals$}"),
                 position: Point::new(area.x - 6.0, y),
                 color: ink,
                 size: Pixels(12.0),
@@ -142,36 +168,23 @@ impl<Message> canvas::Program<Message> for Plot<'_> {
             .map(|(i, p)| Point::new(Self::x(area, i), self.y(area, p.value)))
             .collect();
         let (line, halo) = series_colors(self.chart.metric);
-        if points.len() > 1 {
-            let path = Path::new(|b| {
-                for (i, &p) in points.iter().enumerate() {
-                    if i == 0 { b.move_to(p) } else { b.line_to(p) }
-                }
-            });
-            frame.stroke(&path, Stroke::default().with_color(halo).with_width(5.0));
-            frame.stroke(&path, Stroke::default().with_color(line).with_width(2.0));
-        }
-        for &p in &points {
-            frame.fill(&Path::circle(p, 3.5), ink);
-            frame.fill(&Path::circle(p, 2.0), halo);
-        }
-
-        if let Some(i) = cursor
+        let hovered = cursor
             .position_in(bounds)
-            .and_then(|c| self.hovered(area, c))
-            && let (Some(&p), Some(data)) = (points.get(i), self.chart.points.get(i))
-        {
-            frame.stroke(
-                &Path::circle(p, 6.0),
-                Stroke::default().with_color(ink).with_width(2.0),
-            );
+            .and_then(|c| self.hovered(area, c));
+        if self.chart.metric.per_key() {
+            self.draw_bars(&mut frame, area, &points, ink, hovered);
+        } else {
+            Self::draw_line(&mut frame, &points, ink, (line, halo));
+            if let Some(&p) = hovered.and_then(|i| points.get(i)) {
+                frame.stroke(
+                    &Path::circle(p, 6.0),
+                    Stroke::default().with_color(ink).with_width(2.0),
+                );
+            }
+        }
+        if let Some(content) = hovered.and_then(|i| self.describe(i)) {
             frame.fill_text(Text {
-                content: format!(
-                    "{} · {:.1}{}",
-                    format_date_time(data.at),
-                    data.value,
-                    self.unit
-                ),
+                content,
                 position: Point::new(area.x, 4.0),
                 color: ink,
                 size: Pixels(14.0),
@@ -188,10 +201,64 @@ impl<Message> canvas::Program<Message> for Plot<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        let area = Self::area(bounds.size());
+        let area = self.area(bounds.size());
         match cursor.position_in(bounds) {
             Some(c) if self.hovered(area, c).is_some() => mouse::Interaction::Crosshair,
             _ => mouse::Interaction::default(),
+        }
+    }
+}
+
+impl Plot<'_> {
+    fn draw_line(frame: &mut Frame, points: &[Point], ink: Color, (line, halo): (Color, Color)) {
+        if points.len() > 1 {
+            let path = Path::new(|b| {
+                for (i, &p) in points.iter().enumerate() {
+                    if i == 0 { b.move_to(p) } else { b.line_to(p) }
+                }
+            });
+            frame.stroke(&path, Stroke::default().with_color(halo).with_width(5.0));
+            frame.stroke(&path, Stroke::default().with_color(line).with_width(2.0));
+        }
+        for &p in points {
+            frame.fill(&Path::circle(p, 3.5), ink);
+            frame.fill(&Path::circle(p, 2.0), halo);
+        }
+    }
+
+    /// Barras por tecla, con la tecla debajo; la señalada se resalta.
+    fn draw_bars(
+        &self,
+        frame: &mut Frame,
+        area: Rectangle,
+        points: &[Point],
+        ink: Color,
+        hovered: Option<usize>,
+    ) {
+        let (line, halo) = series_colors(self.chart.metric);
+        let base = self.y(area, self.chart.min);
+        #[allow(clippy::cast_precision_loss)]
+        let slot = area.width / (DATA_POINTS + 1) as f32;
+        let width = (slot * 0.7).max(2.0);
+        for (i, (&p, data)) in points.iter().zip(&self.chart.points).enumerate() {
+            let top_left = Point::new(p.x - width / 2.0, p.y);
+            let size = Size::new(width, (base - p.y).max(1.0));
+            let fill = if hovered == Some(i) { line } else { halo };
+            frame.fill_rectangle(top_left, size, fill);
+            frame.stroke(
+                &Path::rectangle(top_left, size),
+                Stroke::default().with_color(line).with_width(1.0),
+            );
+            if let Some(key) = data.key {
+                frame.fill_text(Text {
+                    content: key.to_string(),
+                    position: Point::new(p.x, base + 4.0),
+                    color: ink,
+                    size: Pixels(13.0),
+                    align_x: Horizontal::Center.into(),
+                    ..Text::default()
+                });
+            }
         }
     }
 }

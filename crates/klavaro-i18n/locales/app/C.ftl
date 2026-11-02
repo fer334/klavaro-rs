@@ -28,3 +28,6 @@ progress-empty = No sessions to chart yet.
 progress-sessions = Last { $count } sessions · { $first } – { $last }
 progress-goal = Goal: { $value }
 ranking-place = #
+tutor-special = Weak keys
+tutor-special-on = Weak keys ✓
+progress-keys = { $count } keys · { $keyboard }

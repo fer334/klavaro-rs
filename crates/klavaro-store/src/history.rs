@@ -16,7 +16,7 @@ use crate::config::module_key;
 use crate::{Result, io_error};
 
 /// Versión del esquema (`PRAGMA user_version`).
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sessions (
@@ -53,6 +53,22 @@ CREATE TABLE IF NOT EXISTS scores (
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+-- Versión 2: rastreo por tecla (accuracy.log_* y proficiency.log_*), en el orden guardado.
+CREATE TABLE IF NOT EXISTS key_errors (
+    keyboard TEXT    NOT NULL,
+    pos      INTEGER NOT NULL,
+    ch       TEXT    NOT NULL,
+    wrong    INTEGER NOT NULL,
+    correct  INTEGER NOT NULL,
+    PRIMARY KEY (keyboard, pos)
+);
+CREATE TABLE IF NOT EXISTS key_times (
+    keyboard TEXT    NOT NULL,
+    pos      INTEGER NOT NULL,
+    ch       TEXT    NOT NULL,
+    samples  TEXT    NOT NULL,
+    PRIMARY KEY (keyboard, pos)
 );
 ";
 
@@ -143,7 +159,7 @@ pub struct ScoreRecord {
 /// Base de datos del historial.
 #[derive(Debug)]
 pub struct History {
-    conn: Connection,
+    pub(crate) conn: Connection,
 }
 
 impl History {

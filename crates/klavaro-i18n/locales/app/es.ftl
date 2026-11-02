@@ -56,3 +56,6 @@ progress-empty = Todavía no hay sesiones para graficar.
 progress-sessions = Últimas { $count } sesiones · { $first } – { $last }
 progress-goal = Meta: { $value }
 ranking-place = #
+tutor-special = Teclas débiles
+tutor-special-on = Teclas débiles ✓
+progress-keys = { $count } teclas · { $keyboard }

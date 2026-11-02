@@ -4,9 +4,13 @@
 //! Cada gráfico muestra las últimas [`DATA_POINTS`] sesiones de un módulo con la meta como
 //! línea horizontal. Igual que en el original, el curso básico se filtra por lección (0 = todas)
 //! y teclado, Adaptabilidad por teclado, y Velocidad y Fluidez por idioma de los textos.
+//!
+//! Adaptabilidad suma dos gráficos de barras por tecla, con el rastreo del teclado actual:
+//! errores y tiempo promedio de pulsación, de mayor a menor.
 
 use klavaro_core::Module;
 use klavaro_core::goals::Goals;
+use klavaro_core::tracker::KeyTracker;
 use klavaro_store::{History, SessionFilter, StoreError};
 
 /// Cantidad de sesiones que muestra cada gráfico (`DATA_POINTS` en `plot.h`).
@@ -23,6 +27,10 @@ pub(crate) enum Metric {
     Fluidity,
     /// Puntaje del Top 10 (sólo módulo de Fluidez).
     Score,
+    /// Errores por tecla (sólo Adaptabilidad).
+    Errors,
+    /// Tiempo promedio de pulsación por tecla, en segundos (sólo Adaptabilidad).
+    TouchTimes,
 }
 
 impl Metric {
@@ -30,9 +38,8 @@ impl Metric {
     pub(crate) fn for_module(module: Module) -> &'static [Metric] {
         match module {
             Module::Fluidity => &[Self::Accuracy, Self::Speed, Self::Fluidity, Self::Score],
-            Module::Basic | Module::Adaptability | Module::Velocity => {
-                &[Self::Accuracy, Self::Speed]
-            }
+            Module::Adaptability => &[Self::Accuracy, Self::Speed, Self::Errors, Self::TouchTimes],
+            Module::Basic | Module::Velocity => &[Self::Accuracy, Self::Speed],
         }
     }
 
@@ -43,6 +50,22 @@ impl Metric {
             Self::Speed => "progress-speed",
             Self::Fluidity => "progress-fluidity",
             Self::Score => "stats-score",
+            Self::Errors => "progress-errors",
+            Self::TouchTimes => "progress-touch-times",
+        }
+    }
+
+    /// Si es un gráfico de barras por tecla (sale del rastreo, no del historial).
+    pub(crate) fn per_key(self) -> bool {
+        matches!(self, Self::Errors | Self::TouchTimes)
+    }
+
+    /// Decimales para mostrar un valor.
+    pub(crate) fn decimals(self) -> usize {
+        match self {
+            Self::Errors => 0,
+            Self::TouchTimes => 3,
+            Self::Accuracy | Self::Speed | Self::Fluidity | Self::Score => 1,
         }
     }
 
@@ -53,6 +76,9 @@ impl Metric {
             Self::Speed => (0.0, 120.0),
             Self::Fluidity => (0.0, 100.0),
             Self::Score => (0.0, 10.0),
+            // Como el original: de 0 a un 5 % más que la barra más alta.
+            Self::Errors => (0.0, 1.05),
+            Self::TouchTimes => (0.0, 0.0105),
         }
     }
 
@@ -62,7 +88,7 @@ impl Metric {
             Self::Accuracy => Some(goal.accuracy),
             Self::Speed => Some(goal.speed),
             Self::Fluidity => goal.fluidity,
-            Self::Score => None,
+            Self::Score | Self::Errors | Self::TouchTimes => None,
         }
     }
 }
@@ -85,8 +111,10 @@ pub(crate) struct ChartQuery {
 /// Un punto del gráfico.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct ChartPoint {
-    /// Instante (segundos desde 1970).
+    /// Instante (segundos desde 1970); 0 en los gráficos por tecla.
     pub(crate) at: i64,
+    /// Tecla, en los gráficos por tecla.
+    pub(crate) key: Option<char>,
     /// Valor.
     pub(crate) value: f64,
 }
@@ -104,6 +132,8 @@ pub(crate) struct Chart {
     pub(crate) min: f64,
     /// Máximo del eje vertical.
     pub(crate) max: f64,
+    /// Separación de las líneas de la grilla.
+    step: f64,
 }
 
 impl Chart {
@@ -123,6 +153,7 @@ impl Chart {
                 .into_iter()
                 .map(|s| ChartPoint {
                     at: s.at,
+                    key: None,
                     value: s.score,
                 })
                 .collect()
@@ -132,10 +163,11 @@ impl Chart {
                 .into_iter()
                 .map(|s| ChartPoint {
                     at: s.at,
+                    key: None,
                     value: match q.metric {
-                        Metric::Accuracy => s.accuracy,
                         Metric::Speed => s.wpm,
-                        Metric::Fluidity | Metric::Score => s.fluidity,
+                        Metric::Fluidity => s.fluidity,
+                        _ => s.accuracy,
                     },
                 })
                 .collect()
@@ -143,9 +175,56 @@ impl Chart {
         Ok(Self::new(q.metric, points, q.metric.goal(goals, q.module)))
     }
 
+    /// Barras por tecla con el rastreo de un teclado: las [`DATA_POINTS`] teclas con más
+    /// errores, o las más lentas.
+    pub(crate) fn per_key(metric: Metric, tracker: &KeyTracker) -> Self {
+        let mut tracker = tracker.clone();
+        tracker.sort();
+        let points = if metric == Metric::Errors {
+            tracker
+                .errors()
+                .iter()
+                .filter(|e| e.wrong > 0)
+                .map(|e| (e.ch, f64::from(e.wrong)))
+                .collect::<Vec<_>>()
+        } else {
+            tracker
+                .times()
+                .iter()
+                .map(|t| (t.ch, t.average()))
+                .collect()
+        };
+        let points = points
+            .into_iter()
+            .take(DATA_POINTS)
+            .map(|(ch, value)| ChartPoint {
+                at: 0,
+                key: Some(ch),
+                value,
+            })
+            .collect();
+        Self::new(metric, points, None)
+    }
+
     /// Gráfico con el eje vertical ajustado para que entren todos los puntos y la meta.
     pub(crate) fn new(metric: Metric, points: Vec<ChartPoint>, goal: Option<f64>) -> Self {
         let (mut min, mut max) = metric.base_range();
+        if metric.per_key() {
+            let top = points.iter().map(|p| p.value).fold(0.0, f64::max);
+            max = max.max(1.05 * top);
+            let mut step = nice_step(max / 5.0);
+            if metric == Metric::Errors {
+                step = step.max(1.0);
+            }
+            return Self {
+                metric,
+                points,
+                goal,
+                min,
+                max: (max / step).ceil() * step,
+                step,
+            };
+        }
         let step = grid_step(metric);
         for v in points.iter().map(|p| p.value).chain(goal) {
             if v < min {
@@ -161,15 +240,27 @@ impl Chart {
             goal,
             min,
             max,
+            step,
         }
+    }
+
+    /// Decimales de las etiquetas del eje vertical (paso 0.5 → 1, paso 0.02 → 2).
+    pub(crate) fn axis_decimals(&self) -> usize {
+        let mut d = 0;
+        let mut s = self.step;
+        while s < 0.999 && d < 4 {
+            s *= 10.0;
+            d += 1;
+        }
+        d
     }
 
     /// Valores del eje vertical donde van las líneas de la grilla.
     pub(crate) fn grid(&self) -> Vec<f64> {
-        let step = grid_step(self.metric);
+        let step = self.step;
         let mut lines = Vec::new();
         let mut v = (self.min / step).ceil() * step;
-        while v <= self.max + f64::EPSILON {
+        while v <= self.max + step * 1e-6 {
             lines.push(v);
             v += step;
         }
@@ -182,7 +273,19 @@ fn grid_step(metric: Metric) -> f64 {
         Metric::Accuracy => 10.0,
         Metric::Speed | Metric::Fluidity => 20.0,
         Metric::Score => 2.0,
+        Metric::Errors | Metric::TouchTimes => 1.0,
     }
+}
+
+/// Paso «redondo» (1, 2 o 5 por una potencia de 10) no menor que `raw`.
+fn nice_step(raw: f64) -> f64 {
+    let raw = raw.max(1e-6);
+    let base = 10f64.powf(raw.log10().floor());
+    [1.0, 2.0, 5.0, 10.0]
+        .into_iter()
+        .map(|m| m * base)
+        .find(|&s| s >= raw * (1.0 - 1e-9))
+        .unwrap_or(10.0 * base)
 }
 
 fn filter(q: &ChartQuery) -> SessionFilter {
@@ -286,7 +389,14 @@ mod tests {
             &query(Module::Fluidity, Metric::Score),
         )
         .expect("leer");
-        assert_eq!(c.points, [ChartPoint { at: 1, value: 4.5 }]);
+        assert_eq!(
+            c.points,
+            [ChartPoint {
+                at: 1,
+                key: None,
+                value: 4.5
+            }]
+        );
         assert_eq!(c.goal, None);
     }
 
@@ -294,7 +404,11 @@ mod tests {
     fn axis_grows_to_fit_the_data() {
         let pts = |v: &[f64]| {
             v.iter()
-                .map(|&value| ChartPoint { at: 0, value })
+                .map(|&value| ChartPoint {
+                    at: 0,
+                    key: None,
+                    value,
+                })
                 .collect::<Vec<_>>()
         };
         let c = Chart::new(Metric::Accuracy, pts(&[95.0, 42.0]), Some(97.0));
@@ -310,6 +424,9 @@ mod tests {
         for code in ["C", "es"] {
             let tr = klavaro_i18n::Translator::new(code);
             for &m in Metric::for_module(Module::Fluidity) {
+                assert!(tr.has(m.label_key()), "{code}: {}", m.label_key());
+            }
+            for &m in Metric::for_module(Module::Adaptability) {
                 assert!(tr.has(m.label_key()), "{code}: {}", m.label_key());
             }
             for key in [
@@ -330,5 +447,50 @@ mod tests {
             Metric::for_module(Module::Basic),
             [Metric::Accuracy, Metric::Speed]
         );
+    }
+
+    #[test]
+    fn per_key_bars_come_from_the_tracker() {
+        use klavaro_core::tracker::{ErrorEntry, TimeEntry};
+
+        let tracker = KeyTracker::from_parts(
+            vec![
+                ErrorEntry {
+                    ch: 'a',
+                    wrong: 2,
+                    correct: 1,
+                },
+                ErrorEntry {
+                    ch: 'q',
+                    wrong: 7,
+                    correct: 1,
+                },
+            ],
+            vec![
+                TimeEntry::new('k', vec![0.2]),
+                TimeEntry::new('j', vec![0.6]),
+            ],
+        );
+        let errors = Chart::per_key(Metric::Errors, &tracker);
+        let keys: Vec<_> = errors.points.iter().filter_map(|p| p.key).collect();
+        assert_eq!(keys, ['q', 'a']);
+        assert!(errors.max >= 7.35 && errors.max <= 8.0, "{}", errors.max);
+        assert_eq!(errors.axis_decimals(), 0);
+
+        let times = Chart::per_key(Metric::TouchTimes, &tracker);
+        assert_eq!(times.points.first().and_then(|p| p.key), Some('j'));
+        assert!(times.max >= 0.63 && times.max <= 0.8, "{}", times.max);
+        assert_eq!(times.axis_decimals(), 1);
+
+        let empty = Chart::per_key(Metric::Errors, &KeyTracker::new());
+        assert_eq!(empty.points, []);
+        assert!(empty.grid().len() > 1);
+    }
+
+    #[test]
+    fn nice_steps() {
+        assert!((nice_step(0.13) - 0.2).abs() < 1e-12);
+        assert!((nice_step(3.0) - 5.0).abs() < 1e-12);
+        assert!((nice_step(10.0) - 10.0).abs() < 1e-12);
     }
 }

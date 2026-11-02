@@ -14,6 +14,7 @@ use klavaro_core::goals::{Comment, CommentContext, GoalCheck, Goals};
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::metrics::Stats;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
+use klavaro_core::tracker::{KeyTracker, SpecialSession};
 
 use crate::exercise::{self, ExerciseSpec};
 
@@ -133,6 +134,11 @@ pub(crate) struct Tutor {
     session: Session,
     outcome: Option<Outcome>,
     seed: u64,
+    /// Errores y tiempos por tecla del teclado actual. Como en el original, no se rastrea el
+    /// curso básico.
+    tracker: KeyTracker,
+    /// Adaptabilidad con palabras que insisten en las teclas débiles.
+    special: bool,
 }
 
 impl Tutor {
@@ -142,8 +148,10 @@ impl Tutor {
         layout: KeyboardLayout,
         goals: Goals,
         seed: u64,
+        mut tracker: KeyTracker,
     ) -> io::Result<Self> {
-        let text = exercise::generate(&spec, &layout, seed)?;
+        tracker.sort();
+        let text = exercise::generate(&spec, &layout, seed, None)?;
         let session = Session::new(spec.module, &text);
         Ok(Self {
             spec,
@@ -152,7 +160,38 @@ impl Tutor {
             session,
             outcome: None,
             seed,
+            tracker,
+            special: false,
         })
+    }
+
+    /// Rastreo por tecla.
+    pub(crate) fn tracker(&self) -> &KeyTracker {
+        &self.tracker
+    }
+
+    /// Devuelve el rastreo al salir de la pantalla.
+    pub(crate) fn into_tracker(self) -> KeyTracker {
+        self.tracker
+    }
+
+    /// Por qué convendría una sesión especial de Adaptabilidad (el original muestra entonces
+    /// un botón para activarla).
+    pub(crate) fn special_suggested(&self) -> Option<SpecialSession> {
+        (self.spec.module == Module::Adaptability)
+            .then(|| self.tracker.special_session())
+            .flatten()
+    }
+
+    /// Si la sesión especial está activa.
+    pub(crate) fn special(&self) -> bool {
+        self.special
+    }
+
+    /// Activa o desactiva la sesión especial y genera un ejercicio nuevo.
+    pub(crate) fn toggle_special(&mut self) -> io::Result<()> {
+        self.special = !self.special && self.spec.module == Module::Adaptability;
+        self.restart()
     }
 
     /// Datos del ejercicio.
@@ -181,7 +220,11 @@ impl Tutor {
             .seed
             .wrapping_mul(6_364_136_223_846_793_005)
             .wrapping_add(1);
-        let text = exercise::generate(&self.spec, &self.layout, self.seed)?;
+        // El original ordena el rastreo al empezar cada ejercicio.
+        self.tracker.sort();
+        let weak =
+            (self.special && self.spec.module == Module::Adaptability).then_some(&self.tracker);
+        let text = exercise::generate(&self.spec, &self.layout, self.seed, weak)?;
         self.session = Session::new(self.spec.module, &text);
         self.outcome = None;
         Ok(())
@@ -233,8 +276,21 @@ impl Tutor {
     }
 
     fn press(&mut self, key: Key, at: Duration, effect: &mut Effect) {
+        let track = self.spec.module != Module::Basic;
         match self.session.press(key, at) {
-            Feedback::Wrong { .. } | Feedback::Ignored => effect.beep = true,
+            Feedback::Correct { expected, interval } if track => {
+                self.tracker.correct(&self.layout, expected, interval);
+            }
+            Feedback::Retouched { expected } if track => {
+                self.tracker.correct(&self.layout, expected, None);
+            }
+            Feedback::Wrong { expected, .. } => {
+                if track {
+                    self.tracker.wrong(&self.layout, expected);
+                }
+                effect.beep = true;
+            }
+            Feedback::Ignored => effect.beep = true,
             Feedback::Finished(stats) => {
                 self.finish(stats);
                 effect.finished = true;
@@ -251,6 +307,11 @@ impl Tutor {
             course_completed: passed_basic && self.spec.lesson >= FIXED_LESSONS,
         };
         let comment = self.goals.comment(module, &stats, ctx);
+        // Meta de Adaptabilidad cumplida: el original borra los errores acumulados.
+        if matches!(comment, Comment::AdaptDone { .. }) {
+            self.tracker.reset_errors();
+            self.special = false;
+        }
         let advance = passed_basic && self.spec.lesson < FIXED_LESSONS;
         self.outcome = Some(Outcome {
             stats,
@@ -310,7 +371,7 @@ mod tests {
             paragraphs: 1,
             language: "es".to_owned(),
         };
-        Tutor::new(spec, layout, Goals::default(), 42).expect("tutor")
+        Tutor::new(spec, layout, Goals::default(), 42, KeyTracker::new()).expect("tutor")
     }
 
     fn type_target(t: &mut Tutor, wrong_every: Option<usize>) {
@@ -428,5 +489,42 @@ mod tests {
             })
             .collect();
         assert_eq!(shown, expected);
+    }
+
+    #[test]
+    fn tracks_keys_except_in_the_basic_course() {
+        let mut basic = tutor(Module::Basic);
+        type_target(&mut basic, Some(4));
+        assert_eq!(basic.tracker(), &KeyTracker::new());
+
+        let mut velo = tutor(Module::Velocity);
+        type_target(&mut velo, Some(4));
+        assert!(velo.tracker().error_total() > 0);
+        assert!(velo.tracker().times().len() > 1);
+    }
+
+    #[test]
+    fn special_session_uses_weak_keys() {
+        let layout = assets::keyboard("qwerty_es").expect("kbd");
+        let mut tracker = KeyTracker::new();
+        for _ in 0..80 {
+            tracker.wrong(&layout, 'z');
+        }
+        for c in "qwertyuiop".chars() {
+            tracker.wrong(&layout, c);
+        }
+        let spec = ExerciseSpec {
+            module: Module::Adaptability,
+            lesson: 1,
+            paragraphs: 1,
+            language: "es".to_owned(),
+        };
+        let mut t = Tutor::new(spec, layout, Goals::default(), 7, tracker).expect("tutor");
+        assert_eq!(t.special_suggested(), Some(SpecialSession::TooManyErrors));
+        let plain = t.text().matches('z').count();
+        t.toggle_special().expect("especial");
+        assert!(t.special());
+        assert!(t.text().matches('z').count() > plain);
+        assert!(tutor(Module::Velocity).special_suggested().is_none());
     }
 }
