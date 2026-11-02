@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/klavaro-core",
+    "crates/klavaro-data",
+    "crates/klavaro-store",
+    "crates/klavaro-i18n",
+    "crates/klavaro-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-or-later"
+description = "Reimplementación en Rust del tutor de mecanografía Klavaro"
+publish = false
+
+[workspace.dependencies]
+klavaro-core = { path = "crates/klavaro-core" }
+klavaro-data = { path = "crates/klavaro-data" }
+klavaro-store = { path = "crates/klavaro-store" }
+klavaro-i18n = { path = "crates/klavaro-i18n" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Ruido sin valor para este proyecto:
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+# Las métricas convierten conteos a f64 a propósito.
+cast_precision_loss = "allow"
+# Reglas extra de robustez:
+unwrap_used = "warn"
+expect_used = "warn"
+dbg_macro = "warn"
+print_stdout = "warn"
+todo = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

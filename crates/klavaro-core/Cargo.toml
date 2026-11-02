@@ -1,0 +1,13 @@
+[package]
+name = "klavaro-core"
+description = "Dominio de Klavaro: sesiones, métricas, generadores de ejercicios y rastreo por tecla (sin E/S ni UI)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

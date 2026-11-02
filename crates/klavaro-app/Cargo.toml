@@ -1,0 +1,21 @@
+[package]
+name = "klavaro-app"
+description = "Aplicación de escritorio klavaro-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "klavaro-rs"
+path = "src/main.rs"
+
+[dependencies]
+klavaro-core.workspace = true
+klavaro-data.workspace = true
+klavaro-store.workspace = true
+klavaro-i18n.workspace = true
+
+[lints]
+workspace = true

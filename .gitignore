@@ -1,0 +1,6 @@
+/target
+**/*.rs.bk
+*.pending-snap
+.DS_Store
+# Código original de referencia (se descarga aparte, no se versiona)
+/upstream/
