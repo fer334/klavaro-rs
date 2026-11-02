@@ -15,7 +15,7 @@
 use std::time::Duration;
 
 use crate::Module;
-use crate::metrics::{MAX_TOUCH_INTERVAL, Stats};
+use crate::metrics::Stats;
 
 /// Tecla recibida de la interfaz, ya traducida.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,11 +46,11 @@ pub enum CharState {
 /// Lo que pasó con una tecla, para que la interfaz pinte, suene y actualice el rastreo.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Feedback {
-    /// Acierto. `interval` es el tiempo desde la tecla anterior (sin el primer toque).
+    /// Acierto. `interval` es el tiempo desde la tecla anterior.
     Correct {
         /// Carácter esperado.
         expected: char,
-        /// Tiempo desde la tecla anterior, con tope de 4 s.
+        /// Tiempo desde la tecla anterior.
         interval: Option<Duration>,
     },
     /// Acierto al reescribir tras corregir (cuenta como error).
@@ -150,6 +150,11 @@ impl Session {
         if self.result.is_some() {
             return Feedback::Ignored;
         }
+        // El cronómetro arranca con la primera tecla, como en el original.
+        if self.started_at.is_none() {
+            self.started_at = Some(at);
+            self.last_at = Some(at);
+        }
         let feedback = if self.module.allows_correction() {
             self.eval_with_correction(key, at)
         } else {
@@ -198,8 +203,12 @@ impl Session {
 
     fn eval_with_correction(&mut self, key: Key, at: Duration) -> Feedback {
         match key {
-            Key::Backspace => self.erase_one(),
+            Key::Backspace => {
+                self.mark_time(at);
+                self.erase_one()
+            }
             Key::DeleteWord => {
+                self.mark_time(at);
                 if self.retro == 0 {
                     return Feedback::Ignored;
                 }
@@ -214,17 +223,14 @@ impl Session {
                 };
                 self.touches += 1;
                 let feedback = if self.retro == 0 && matches_key(expected, key) {
+                    let interval = self.record_interval(at);
                     if self.correcting > 0 {
                         self.states[self.pos] = CharState::Retouched;
                         self.errors += 1;
-                        self.mark_time(at);
                         Feedback::Retouched { expected }
                     } else {
                         self.states[self.pos] = CharState::Correct;
-                        Feedback::Correct {
-                            expected,
-                            interval: self.record_interval(at),
-                        }
+                        Feedback::Correct { expected, interval }
                     }
                 } else {
                     self.states[self.pos] = CharState::Wrong;
@@ -255,9 +261,7 @@ impl Session {
 
     /// Registra el instante y devuelve el intervalo desde la tecla anterior.
     fn record_interval(&mut self, at: Duration) -> Option<Duration> {
-        let interval = self
-            .last_at
-            .map(|last| at.saturating_sub(last).min(MAX_TOUCH_INTERVAL));
+        let interval = self.last_at.map(|last| at.saturating_sub(last));
         if let Some(i) = interval {
             self.intervals.push(i);
         }
@@ -383,6 +387,8 @@ mod tests {
         // 'b' y 'c' reescritos tras corregir cuentan como errores.
         assert_eq!(stats.errors, 2);
         assert_eq!(stats.touches, 5);
+        // Un intervalo por acierto (incluidos los reescritos), desde la tecla anterior.
+        assert_eq!(s.intervals, vec![ms(0), ms(50), ms(100)]);
         assert_eq!(
             s.states(),
             &[
@@ -406,12 +412,15 @@ mod tests {
     }
 
     #[test]
-    fn intervals_are_capped() {
-        let mut s = Session::new(Module::Velocity, "ab");
-        s.press(Key::Char('a'), ms(0));
-        let fb = s.press(Key::Char('b'), ms(10_000));
+    fn intervals_follow_original_timing() {
+        // Un intervalo por acierto, medido desde la tecla anterior (sea error o acierto); el
+        // primero es el del primer toque (0).
+        let mut s = Session::new(Module::Velocity, "abc");
+        s.press(Key::Char('a'), ms(1_000));
+        s.press(Key::Char('x'), ms(1_300));
+        let fb = s.press(Key::Char('c'), ms(1_400));
         assert!(matches!(fb, Feedback::Finished(_)));
-        assert_eq!(s.intervals, vec![MAX_TOUCH_INTERVAL]);
+        assert_eq!(s.intervals, vec![ms(0), ms(100)]);
     }
 
     #[test]

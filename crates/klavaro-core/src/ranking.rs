@@ -5,9 +5,7 @@ use crate::metrics::Stats;
 
 /// Lugares del ranking.
 pub const TOP: usize = 10;
-/// Mínimo de caracteres para que una sesión entre al ranking.
-///
-/// Por confirmar con el código original (`MIN_CHARS_TO_LOG`).
+/// Mínimo de caracteres para que una sesión de Fluidez se registre (`MIN_CHARS_TO_LOG`).
 pub const MIN_CHARS: u32 = 500;
 /// Umbral de la prueba de distribución de letras: por encima, el texto no se parece al idioma.
 pub const DISTRIBUTION_THRESHOLD: f64 = 0.205;

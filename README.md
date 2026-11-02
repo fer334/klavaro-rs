@@ -3,7 +3,14 @@
 Reimplementación en Rust de [Klavaro](https://klavaro.sourceforge.io/), el tutor de
 mecanografía libre e independiente del idioma y de la distribución de teclado.
 
-> Estado: fases 0 y 1 (esqueleto y núcleo de dominio). Todavía no hay interfaz gráfica.
+> Estado: fases 0 y 1 (esqueleto y núcleo de dominio). Todavía no hay interfaz gráfica;
+> mientras tanto hay una práctica provisoria en la terminal:
+>
+> ```sh
+> cargo run -- --practicar                    # Velocidad en español
+> cargo run -- --practicar basico --leccion 3
+> cargo run -- --help
+> ```
 
 ## Créditos
 

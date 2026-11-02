@@ -6,9 +6,9 @@ use klavaro_core::keyboard::is_diacritic;
 use crate::lines;
 
 /// Máximo de palabras que se guardan de un texto importado.
-pub const MAX_WORDS: usize = 100_000;
+pub const MAX_WORDS: usize = 12_123;
 /// Máximo de párrafos que se guardan de un texto importado.
-pub const MAX_PARAGRAPHS: usize = 10_000;
+pub const MAX_PARAGRAPHS: usize = 100;
 
 /// Lee un `.words`: una palabra por línea; se ignoran líneas vacías.
 pub fn parse_words(text: &str) -> Vec<String> {

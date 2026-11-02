@@ -91,7 +91,7 @@ pub fn generate(
         .copied()
         .filter(|&c| !is_diacritic(c))
         .collect();
-    if charset.len() < 2 || letters.is_empty() {
+    if charset.len() < 2 {
         return None;
     }
     // Conjuntos chicos se duplican para que haya repeticiones, como en el original.
@@ -113,8 +113,9 @@ pub fn generate(
                     }
                 }
                 let mut i = rng.below(pool.len());
-                // Una marca combinante no puede empezar un grupo ni ir tras otra marca.
-                if is_diacritic(pool[i]) && prev.is_none_or(is_diacritic) {
+                // Una marca combinante no puede empezar un grupo ni ir tras otra marca (salvo
+                // que la lección tenga sólo marcas, como algunas de gurmukhi).
+                if !letters.is_empty() && is_diacritic(pool[i]) && prev.is_none_or(is_diacritic) {
                     if let Some(j) = pool.iter().position(|&c| !is_diacritic(c)) {
                         i = j;
                     } else {

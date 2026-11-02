@@ -30,9 +30,15 @@ klavaro-app ──► klavaro-i18n
 
 ## Fidelidad con Klavaro 3.14
 
-Las fórmulas y constantes vienen de `tutor.c`, `accuracy.c`, `top10.c` y los módulos del
-original. Valores por confirmar contra `upstream/`:
+Las fórmulas y constantes se verificaron contra el código original en `upstream/`
+(`tutor.c`, `accuracy.c`, `top10.c`, `basic.c`, `adaptability.h`, `fluidness.h`, `plot.h`):
+`MAX_BASIC_LESSONS` 256, `MIN_CHARS_TO_LOG` 500, Adaptabilidad 4 × 22 palabras de hasta 9
+letras, fluidez sin tope por intervalo (el 4000 del original es el tamaño de un arreglo) y
+desviación con denominador `n − 1`. Para los gráficos, el original muestra las últimas 50
+sesiones (`DATA_POINTS`).
 
-- `ranking::MIN_CHARS` (`MIN_CHARS_TO_LOG`).
-- Párrafos y palabras por ejercicio de Adaptabilidad (`LINES`, `WORDS`) y `MAX_WORD_LEN`.
-- El denominador exacto de la desviación estándar en `metrics::fluidity`.
+## Datos
+
+`assets/` contiene los datos del original (GPL-3.0-or-later): 77 distribuciones `.kbd`,
+listas `.words` y `.paragraphs` por idioma, `basic_lessons.txt` y `fingers_position.txt`.
+`crates/klavaro-data/tests/assets.rs` verifica que todo se lea y genere ejercicios.

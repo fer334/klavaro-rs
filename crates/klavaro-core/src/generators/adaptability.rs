@@ -13,7 +13,7 @@ use crate::tracker::{KeyTracker, MAX_WORD_LEN};
 /// Párrafos por ejercicio.
 pub const PARAGRAPHS: usize = 4;
 /// Palabras por párrafo.
-pub const WORDS: usize = 10;
+pub const WORDS: usize = 22;
 
 /// Genera el ejercicio. `weak_keys`, si se pasa, debe estar ordenado
 /// ([`KeyTracker::sort`]) y activa la sesión especial.

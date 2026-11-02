@@ -23,7 +23,7 @@ pub const ERROR_LIMIT: u32 = 60;
 /// Relación entre la 10.ª y la 40.ª tecla más lentas a partir de la cual se sugiere practicar.
 pub const PROFI_LIMIT: f64 = 2.2;
 /// Largo máximo de una palabra generada.
-pub const MAX_WORD_LEN: usize = 8;
+pub const MAX_WORD_LEN: usize = 9;
 
 /// Errores de un carácter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

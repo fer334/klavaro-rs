@@ -3,10 +3,6 @@
 
 use std::time::Duration;
 
-/// Tope de un intervalo entre teclas (4.000 ms en el original): una pausa larga no hunde la
-/// fluidez de toda la sesión.
-pub const MAX_TOUCH_INTERVAL: Duration = Duration::from_secs(4);
-
 /// Valor mínimo de fluidez que informa el original.
 pub const MIN_FLUIDITY: f64 = 2.0;
 
@@ -69,30 +65,31 @@ pub fn words_per_minute(touches: u32, errors: u32, elapsed: Duration) -> f64 {
     12.0 * correct / secs
 }
 
-/// Fluidez: `100 × (1 − σ(x) / x̄)` con `xᵢ = √(1/Δtᵢ)`.
+/// Fluidez: `100 × (1 − σ(x) / x̄)` con `xᵢ = √(1/Δtᵢ)`, igual que `tutor_calc_stats` de
+/// Klavaro 3.14.
 ///
-/// Como el original, descarta los dos primeros intervalos (arranque) y no baja de
-/// [`MIN_FLUIDITY`]. Con menos de 2 muestras útiles devuelve el mínimo.
+/// `intervals` tiene un valor por acierto: el tiempo desde la tecla anterior (el primero es
+/// el del primer toque, ~0). Se descartan los dos primeros. El promedio divide por la
+/// cantidad de muestras y la desviación por `n − 1` (como mínimo 1). Nunca baja de
+/// [`MIN_FLUIDITY`]; sin muestras suficientes da 100, como el original.
 pub fn fluidity(intervals: &[Duration]) -> f64 {
     let samples: Vec<f64> = intervals
         .iter()
         .skip(2)
         .map(|dt| {
-            let t = dt.as_secs_f64().max(1e-8);
+            let t = dt.as_secs_f64();
+            let t = if t <= 0.0 { 1e-8 } else { t };
             (1.0 / t).sqrt()
         })
         .collect();
-    if samples.len() < 2 {
-        return MIN_FLUIDITY;
-    }
     let n = samples.len() as f64;
-    let mean = samples.iter().sum::<f64>() / n;
+    let mut mean = samples.iter().sum::<f64>() / n.max(1.0);
     if mean <= 0.0 {
-        return MIN_FLUIDITY;
+        mean = 1e-9;
     }
-    let var = samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1.0);
-    let value = 100.0 * (1.0 - var.sqrt() / mean);
-    value.clamp(MIN_FLUIDITY, 100.0)
+    let squares = samples.iter().map(|x| (x - mean).powi(2)).sum::<f64>();
+    let deviation = (squares / (n - 1.0).max(1.0)).sqrt();
+    (100.0 * (1.0 - deviation / mean)).max(MIN_FLUIDITY)
 }
 
 /// Puntaje del Top 10: `(6 × PPM/1,2 + 3 × precisión + 1 × fluidez) / 100`.
@@ -142,8 +139,24 @@ mod tests {
     }
 
     #[test]
-    fn too_few_samples_give_minimum() {
-        assert!((fluidity(&[ms(100), ms(100), ms(100)]) - MIN_FLUIDITY).abs() < 1e-9);
+    fn too_few_samples_behave_like_original() {
+        // Sin muestras útiles la desviación es 0: el original informa 100.
+        assert!((fluidity(&[ms(0), ms(100)]) - 100.0).abs() < 1e-9);
+        assert!((fluidity(&[ms(0), ms(100), ms(300)]) - 100.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn matches_hand_computed_value() {
+        // Muestras 0,25 s y 1 s → x = 2 y 1; media 1,5; σ = √(0,5 / 1) ≈ 0,7071.
+        let ivs = [ms(0), ms(0), ms(250), ms(1_000)];
+        let expected = 100.0 * (1.0 - 0.5f64.sqrt() / 1.5);
+        assert!((fluidity(&ivs) - expected).abs() < 1e-9);
+    }
+
+    #[test]
+    fn very_irregular_rhythm_is_floored() {
+        let ivs = [ms(0), ms(0), ms(1), ms(3_000), ms(1), ms(3_000)];
+        assert!((fluidity(&ivs) - MIN_FLUIDITY).abs() < 1e-9);
     }
 
     #[test]
