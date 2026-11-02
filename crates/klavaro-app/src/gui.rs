@@ -11,7 +11,7 @@ use iced::widget::operation::{self, RelativeOffset};
 use iced::widget::text::Span;
 use iced::widget::{
     Space, button, canvas, checkbox, column, container, pick_list, progress_bar, rich_text, row,
-    scrollable, span, text, text_input, tooltip,
+    scrollable, span, stack, text, text_input, tooltip,
 };
 use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, Theme, event};
 
@@ -1006,24 +1006,23 @@ impl App {
             .into_iter()
             .map(|s| styled_span(s, &palette))
             .collect();
-        let exercise = container(
-            scrollable(
-                container(
-                    rich_text(spans)
-                        .font(Font::MONOSPACE)
-                        .size(24)
-                        .line_height(1.5),
-                )
-                .padding([24, 32])
-                .width(Length::Fill),
+        let body = scrollable(
+            container(
+                rich_text(spans)
+                    .font(Font::MONOSPACE)
+                    .size(24)
+                    .line_height(1.5),
             )
-            .id(EXERCISE_SCROLL)
-            .height(Length::Fill),
+            .padding([24, 32])
+            .width(Length::Fill),
         )
-        .height(Length::Fill)
-        .style(style::card);
+        .id(EXERCISE_SCROLL)
+        .height(Length::Fill);
+        let exercise = container(stack![body, Typing])
+            .height(Length::Fill)
+            .style(style::card);
 
-        let mut page = column![header, exercise, Typing].spacing(16);
+        let mut page = column![header, exercise].spacing(16);
         if has_keyboard && self.profile.config.show_keyboard {
             page = page.push(self.keyboard_view(tutor));
         }

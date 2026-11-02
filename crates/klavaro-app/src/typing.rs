@@ -14,6 +14,11 @@ use iced::advanced::{Clipboard, Shell, Widget, mouse, renderer};
 use iced::{Element, Event, Length, Rectangle, Size, window};
 
 /// Pide el método de entrada en cada cuadro mientras está en pantalla.
+///
+/// Va como capa transparente sobre el texto del ejercicio y ocupa todo su espacio: `column`
+/// y `stack` descartan sin aviso a los hijos que miden 0 en algún eje, así que no puede
+/// medir cero. No dibuja nada ni toma el mouse, y la ventana de candidatos del sistema
+/// aparece sobre el texto.
 pub(crate) struct Typing;
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer> for Typing
@@ -21,16 +26,16 @@ where
     Renderer: renderer::Renderer,
 {
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fixed(0.0), Length::Fixed(0.0))
+        Size::new(Length::Fill, Length::Fill)
     }
 
     fn layout(
         &mut self,
         _tree: &mut Tree,
         _renderer: &Renderer,
-        _limits: &layout::Limits,
+        limits: &layout::Limits,
     ) -> layout::Node {
-        layout::Node::new(Size::ZERO)
+        layout::Node::new(limits.max())
     }
 
     fn draw(
