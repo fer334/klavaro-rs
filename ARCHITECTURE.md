@@ -132,16 +132,22 @@ otra carpeta.
 
 ## Empaquetado
 
-- `tools/package.sh [TRIPLE]` compila en release (LTO, `strip`) y arma en `dist/` el paquete
-  del sistema: `.app` en un `.zip` (macOS, ícono `.icns` generado con `sips` e `iconutil`),
-  `.tar.gz` con `bin/` y `share/` (Linux) o `.zip` con el `.exe` (Windows).
-- `packaging/` tiene el ícono del original (SVG y PNG de 256 px), el `.desktop` y el
-  `Info.plist`.
+- `tools/package.sh [TRIPLE]` compila en release (LTO, `strip`) y arma en `dist/` los
+  paquetes del sistema:
+  - macOS: `.dmg` con `klavaro-rs.app` y el atajo a Aplicaciones (`hdiutil`; ícono `.icns`
+    generado con `sips` e `iconutil`).
+  - Linux: `.tar.gz` con `bin/` y `share/`, y `.deb` (`dpkg-deb`, dependencias calculadas con
+    `dpkg-shlibdeps`).
+  - Windows: instalador `.msi` (WiX 5, `packaging/windows/klavaro-rs.wxs`: Archivos de
+    programa, acceso directo en el menú Inicio, actualización sobre la versión anterior) y el
+    `.exe` portable.
+- `packaging/` tiene el ícono del original (SVG, PNG de 256 px e `.ico`), el `.desktop`, el
+  `Info.plist` y el `.wxs`.
 - `.github/workflows/release.yml` corre el script en Linux, macOS (ARM e Intel) y Windows y,
   con una etiqueta `v*`, crea un borrador de release con los paquetes y `SHA256SUMS`.
 - Aviso de versión nueva (`update.rs`, función `update`): al abrir, la app consulta
   `releases/latest` del repositorio fijado al compilar con `KLAVARO_RELEASES` (el workflow
   usa `github.repository`) y, si hay una versión mayor, muestra un aviso con el enlace. Los
   borradores no cuentan hasta publicarlos. Se desactiva en Preferencias.
-- Pendiente: firma y notarización en macOS, ícono del `.exe` y ventana sin consola en
-  Windows, y paquetes de distribución (Flatpak, `.deb`).
+- Pendiente: firma y notarización en macOS, firma, ícono del `.exe` y ventana sin consola en
+  Windows, y Flatpak.

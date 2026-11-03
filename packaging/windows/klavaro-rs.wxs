@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  Instalador .msi de klavaro-rs (WiX 5). Lo arma tools/package.sh en Windows:
+
+    wix build -arch x64 -d Version=<versión> -d Exe=<ruta del .exe> -d Root=<raíz del repo> ...
+
+  Instala para todos los usuarios en Archivos de programa\klavaro-rs, con un acceso directo en
+  el menú Inicio. Una versión nueva reemplaza a la anterior (MajorUpgrade); el UpgradeCode no
+  debe cambiar nunca.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="klavaro-rs"
+    Manufacturer="klavaro-rs"
+    Version="$(var.Version)"
+    UpgradeCode="ED095908-1E84-4E10-92CE-2DAD98363477"
+    Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="Ya hay instalada una versión más nueva de klavaro-rs." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="klavaro_rs.ico" SourceFile="$(var.Root)/packaging/windows/klavaro-rs.ico" />
+    <Property Id="ARPPRODUCTICON" Value="klavaro_rs.ico" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/fer334/klavaro-rs" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="klavaro-rs">
+        <Component Id="Program">
+          <File Id="klavaro_rs.exe" Source="$(var.Exe)" KeyPath="yes" />
+          <File Source="$(var.Root)/LICENSE" Name="LICENSE.txt" />
+          <File Source="$(var.Root)/README.md" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut
+          Id="StartMenuShortcut"
+          Name="klavaro-rs"
+          Description="Tutor de mecanografía"
+          Target="[INSTALLFOLDER]klavaro-rs.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="klavaro_rs.ico" />
+        <RegistryValue
+          Root="HKMU"
+          Key="Software\klavaro-rs"
+          Name="StartMenuShortcut"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentRef Id="Program" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

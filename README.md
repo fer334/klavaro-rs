@@ -57,12 +57,15 @@ Los paquetes salen de `tools/package.sh` (en `dist/`) o del workflow `Release` a
 etiqueta `v*`. Los datos de `assets/` van dentro del ejecutable; no hace falta instalarlos
 aparte (`KLAVARO_ASSETS=carpeta` usa otros datos en su lugar).
 
-- **macOS**: descomprimir el `.zip` y mover `klavaro-rs.app` a Aplicaciones. No está firmada:
+- **macOS**: abrir el `.dmg` y arrastrar `klavaro-rs.app` a Aplicaciones. No está firmada:
   la primera vez, clic derecho → Abrir.
-- **Linux**: descomprimir el `.tar.gz` y copiar `bin/` y `share/` a `~/.local/` (o a
-  `/usr/local/`). Incluye el `.desktop` y el ícono.
-- **Windows**: descomprimir el `.zip` y abrir `klavaro-rs.exe`. Se abre también una consola,
-  que usa la práctica en la terminal.
+- **Linux**: en Debian y Ubuntu, `sudo apt install ./klavaro-rs_<versión>_amd64.deb`. Si no,
+  descomprimir el `.tar.gz` y copiar `bin/` y `share/` a `~/.local/` (o a `/usr/local/`);
+  incluye el `.desktop` y el ícono.
+- **Windows**: el `.msi` instala en Archivos de programa con un acceso directo en el menú
+  Inicio; el `.exe` suelto funciona sin instalar. No están firmados: Windows avisa la primera
+  vez («Más información» → «Ejecutar de todas formas»). Se abre también una consola, que usa
+  la práctica en la terminal.
 
 Para el modo dictado hace falta `espeak-ng` o `espeak` (en macOS alcanza con `say`).
 
