@@ -1807,7 +1807,7 @@ checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
 name = "klavaro-app"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "iced",
  "klavaro-core",
@@ -1821,18 +1821,18 @@ dependencies = [
 
 [[package]]
 name = "klavaro-core"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "klavaro-data"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "klavaro-core",
 ]
 
 [[package]]
 name = "klavaro-i18n"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "klavaro-store"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chrono",
  "directories",
