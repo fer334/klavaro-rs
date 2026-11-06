@@ -58,7 +58,7 @@ update-download = Download
 
 module-progression = Progression
 sections-back = Back
-module-progression-tip = Climb from 20 to 100 WPM, lesson by lesson, earning stars.
+module-progression-tip = Climb from 20 to 100 WPM, lesson by lesson, earning stars. Texts in English.
 sections-section = { $section } WPM section
 sections-intro = Each section has 30 lessons, and each lesson asks a little more speed than the last, up to the { $goal } WPM goal.
 sections-keys = Arrows: move · Enter: open · Esc: back

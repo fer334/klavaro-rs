@@ -5,6 +5,9 @@ Una parte nueva del programa, con forma de juego, organizada en secciones de vel
 velocidad que la anterior**, de modo que la lección 30 alcanza la meta que da nombre a la sección.
 Cada lección terminada da un puntaje y de 1 a 5 estrellas, que quedan guardados.
 
+Por ahora los ejercicios son **solo en inglés**, sea cual sea el idioma de los textos elegido para los
+otros módulos. El esquema y el formato del catálogo ya guardan el idioma, para poder sumar otros después.
+
 El plan se divide en seis fases. Cada una deja algo completo, probado y que se puede mergear.
 
 ## Decisiones por confirmar
@@ -17,8 +20,8 @@ más adelante es barato, salvo la 4 y la 5, que conviene definir antes de la Fas
 | 1 | Primera sección | 20 WPM | Fijaste el final (100), no el inicio. Da 17 secciones y 510 lecciones. |
 | 2 | Estrellas para abrir la lección siguiente | 3 (80 % de la meta de la lección) | Permite seguir sin exigir la meta en cada texto. |
 | 3 | Para aprobar una sección | Las 30 lecciones con 3 estrellas o más, y la lección 30 con 5 estrellas | La lección 30 pide la meta de la sección, así que aprobar demuestra haberla alcanzado. |
-| 4 | Alcance del progreso | Por idioma, sin separar por teclado | Más simple. El teclado queda registrado en cada intento. |
-| 5 | Idiomas del primer catálogo | Español (`es`) e inglés (`C`) | 510 textos revisados por idioma es bastante trabajo. |
+| 4 | Alcance del progreso | Uno solo, sin separar por teclado | Más simple. El teclado queda registrado en cada intento. |
+| 5 | Idiomas del catálogo | Solo inglés (`C`) | Confirmado. Otros idiomas quedan para más adelante. |
 | 6 | Precisión mínima para 5 estrellas | 95 % | Evita premiar velocidad con muchos errores. Agrega una condición a tu regla de la meta. |
 
 ## Reglas del juego
@@ -162,7 +165,7 @@ CREATE INDEX IF NOT EXISTS progression_by_lesson
 
 ### Catálogo
 
-Un archivo por idioma en `assets/`, por ejemplo `assets/es.progression`, porque `build.rs` solo
+Un archivo por idioma en `assets/`, por ahora solo `assets/C.progression`, porque `build.rs` solo
 embebe los archivos del primer nivel de esa carpeta. Formato de texto separado por tabuladores,
 sin dependencias nuevas:
 
@@ -170,19 +173,18 @@ sin dependencias nuevas:
 # sección  lección  text_id  tema  D  fuente  título  revisión  texto
 ```
 
-Con unos 300 caracteres de media por texto, más los metadatos, serían unos 200 KB por idioma, que
+Con unos 300 caracteres de media por texto, más los metadatos, serían unos 200 KB, que
 se suman a los 1,7 MB de datos actuales. Es asumible. Los textos van embebidos, de modo que la app
 sigue funcionando sin internet y **no descarga nada mientras se usa**.
 
 ## Fuente de los textos
 
-**Fuente recomendada: Wikipedia, en español e inglés.**
+**Fuente: Wikipedia en inglés (`en`) y Simple English Wikipedia (`simple`).**
 
 - **Licencia:** consulté la API de `es`, `en` y `simple` y las tres declaran CC BY-SA 4.0. Creative
   Commons declara GPLv3 compatible con BY-SA 4.0, y este proyecto es GPL-3.0-or-later. Exige
   atribución e indicar que el texto fue recortado. Conviene una revisión legal antes de publicar.
-- **Descartadas:** los textos de EdClub, que no tenemos licencia para redistribuir, y Vikidia en
-  español, que declara BY-SA 3.0 y no 4.0.
+- **Descartados:** los textos de EdClub, que no tenemos licencia para redistribuir.
 
 Medí el rendimiento con una muestra chica: 60 artículos al azar por idioma, tomando solo el inicio
 de cada artículo, con largos equivalentes a 50–70 s y sin revisión de calidad.
@@ -197,8 +199,7 @@ de cada artículo, con largos equivalentes a 50–70 s y sin revisión de calida
 
 Esto indica dos cosas:
 
-1. **El español es el cuello de botella**, sobre todo en las metas altas. Al 5 %, cubrir 30
-   lecciones exige unos 600 artículos candidatos para esa sección.
+1. **`simple` rinde más que `en`**, y su vocabulario más sencillo sirve para las primeras secciones.
 2. **Al azar no alcanza.** Salen muchos artículos pobres, como especies poco conocidas o resultados
    electorales. Hay que partir de listas curadas, y la Fase 2 empieza por comprobar si existen y
    sirven: artículos destacados y buenos, y la lista de artículos que toda Wikipedia debería tener.
@@ -266,28 +267,50 @@ local. Puede hacerse en paralelo con la Fase 1.
 
 ### Tareas
 
-- [ ] Evaluar las listas curadas por idioma y fijar las fuentes en un archivo versionado.
-- [ ] Crear `tools/progression/fetch.py`, que use la API `action=query` con `prop=extracts` y
+- [x] Evaluar las listas curadas y fijar las fuentes en un archivo versionado: niveles 1 a 4 de la
+  lista de artículos vitales de Wikipedia, que ya trae el tema (`tools/progression/sources.json`).
+- [x] Crear `tools/progression/fetch.py`, que use la API `action=query` con `prop=extracts` y
   `explaintext`, y guarde el id de revisión de cada artículo.
-- [ ] Respetar las reglas de uso de la API: un `User-Agent` identificable, lotes, una pausa entre
+- [x] Respetar las reglas de uso de la API: un `User-Agent` identificable, lotes, una pausa entre
   pedidos, y reintentos que respeten `maxlag` y `Retry-After`.
-- [ ] Guardar la caché en `tools/progression/cache/`, ignorada por git, para no repetir descargas.
-- [ ] Registrar por artículo: idioma, título, id de página, revisión, licencia, fecha y tema.
-- [ ] Generar un informe de cuántos candidatos hay por idioma, tema y rango de largo.
+- [x] Guardar la caché en `tools/progression/cache/`, ignorada por git, para no repetir descargas.
+- [x] Registrar por artículo: idioma, título, id de página, revisión, licencia, fecha y tema.
+- [x] Generar un informe de cuántos candidatos hay por fuente, tema y sección.
+
+### Cómo ejecutarla
+
+```bash
+python3 tools/progression/fetch.py
+```
+
+```bash
+python3 tools/progression/report.py
+```
+
+```bash
+python3 -m unittest discover -s tools/progression
+```
 
 ### Criterios de aceptación
 
-- [ ] Volver a ejecutar el comando sin cambios no hace pedidos nuevos.
-- [ ] Una falla de red a mitad de camino se retoma sin perder lo ya descargado.
-- [ ] Cada artículo guardado permite armar el enlace a su revisión exacta.
-- [ ] **Control:** el informe alcanza la cantidad de candidatos que pide la Fase 3 en `es` y `C`. Si
+- [x] Volver a ejecutar el comando sin cambios no hace pedidos nuevos.
+- [x] Una falla de red a mitad de camino se retoma sin perder lo ya descargado.
+- [x] Cada artículo guardado permite armar el enlace a su revisión exacta.
+- [x] **Control:** el informe alcanza la cantidad de candidatos que pide la Fase 3. Si
   no, se amplían las fuentes antes de seguir.
+
+### Resultado de la descarga
+
+Se pidieron 10.013 títulos en dos wikis (998 pedidos, 38 MB de caché). Hay 8985 artículos en `simple` y
+10.013 en `en`, y con los filtros automáticos pasan 7530 y 7362. La sección con menos candidatos es
+la de 20 WPM, con más de 2000 en cada wiki, así que el control de 60 por sección se cumple con margen.
+Los filtros no miden la calidad: la revisión humana de la Fase 3 sigue siendo necesaria.
 
 ---
 
 ## Fase 3: selección, dificultad y catálogo
 
-**Resultado:** `assets/es.progression` y `assets/C.progression`, con 510 textos revisados cada uno.
+**Resultado:** `assets/C.progression`, con 510 textos revisados.
 
 ### Tareas
 
@@ -300,7 +323,7 @@ local. Puede hacerse en paralelo con la Fase 1.
 **Filtros, tomados del análisis de EdClub**
 - [ ] Oración más larga: hasta 34 palabras.
 - [ ] Mayúsculas: hasta 7 %. Puntuación: hasta 5 %.
-- [ ] Solo caracteres que se puedan escribir en el idioma, sin símbolos raros.
+- [ ] Solo caracteres ASCII que se escriben en cualquier teclado inglés, sin símbolos raros.
 - [ ] El tema aparece en la primera oración.
 - [ ] Rechazar textos que dependan de lo anterior ("Sin embargo…", "Esto…", "It…") y listas.
 - [ ] Rechazar duplicados y casi duplicados.
@@ -319,7 +342,7 @@ local. Puede hacerse en paralelo con la Fase 1.
 
 ### Criterios de aceptación
 
-- [ ] 510 textos por idioma, sin artículos repetidos.
+- [ ] 510 textos, sin artículos repetidos.
 - [ ] El largo y la franja de `D` son correctos en cada lección.
 - [ ] Todos los textos tienen fuente, revisión y licencia, y todos pasaron la revisión.
 - [ ] Generar el catálogo dos veces produce archivos idénticos.
@@ -338,7 +361,6 @@ local. Puede hacerse en paralelo con la Fase 1.
 - [ ] Mostrar el artículo de origen en el resultado, con enlace a la licencia.
 - [ ] Agregar una pantalla de créditos e incluir el aviso de licencia en los paquetes de
   `tools/package.sh`. Agregar la atribución de los textos a `README.md`.
-- [ ] Con un idioma sin catálogo, mostrar la Progresión deshabilitada con una explicación.
 - [ ] Avisar cuando un texto tenga caracteres que el teclado actual no puede escribir, sin bloquear
   la lección.
 
@@ -346,7 +368,7 @@ local. Puede hacerse en paralelo con la Fase 1.
 
 - [ ] Una prueba en `klavaro-data/tests/assets.rs` valida cada catálogo: 510 filas, todas las
   lecciones, largo y `D` correctos, y atribución completa.
-- [ ] Los acentos y `ñ` se pueden escribir con teclas muertas en los catálogos `es`, incluida Dvorak.
+- [ ] Todos los textos se pueden escribir en las distribuciones de inglés, incluida Dvorak.
 - [ ] Un progreso guardado en la Fase 1 sigue siendo válido con el catálogo real.
 - [ ] Los paquetes de macOS, Linux y Windows funcionan sin internet y sin carpeta de datos.
 
@@ -362,14 +384,19 @@ local. Puede hacerse en paralelo con la Fase 1.
 - [ ] Destacar el récord y las estrellas nuevas en el resultado.
 - [ ] Agregar una pantalla de sección aprobada y otra de Progresión completada.
 - [ ] Reutilizar el pitido o un sonido del sistema al ganar estrellas, respetando las Preferencias.
-- [ ] Agregar la Progresión a los gráficos de Progreso, con WPM, precisión y estrellas por sección.
+- [ ] Agregar la Progresión a la pantalla de Progreso, como los otros modos: elegir sección y lección
+  (o todas), y ver los gráficos de WPM y precisión de sus intentos, con la meta de la lección como
+  línea de referencia.
+- [ ] Agregar un botón de Progreso en la lección y en su resultado, que abra el gráfico de esa lección.
+- [ ] Agregar un gráfico de estrellas por sección.
 - [ ] Mostrar las teclas más débiles de la lección y un acceso a la sesión especial de Adaptabilidad
   cuando corresponda.
-- [ ] Agregar en Preferencias "Reiniciar progresión", con confirmación, para el idioma actual.
+- [ ] Agregar en Preferencias "Reiniciar progresión", con confirmación.
 
 ### Criterios de aceptación
 
-- [ ] Reiniciar afecta solo al idioma elegido y no toca `sessions` ni el Top 10.
+- [ ] Una prueba confirma que el gráfico de una lección muestra solo sus intentos.
+- [ ] Reiniciar no toca `sessions` ni el Top 10.
 - [ ] Las vistas funcionan en tema claro y oscuro y con el tamaño mínimo de ventana.
 - [ ] Las animaciones o sonidos no agregan demora antes de poder reintentar.
 
@@ -409,8 +436,8 @@ Fase 2 (descarga) ─► Fase 3 ─┘
 
 | Riesgo | Mitigación |
 |---|---|
-| Pocos textos buenos en español para las metas altas | Control al final de la Fase 2. Unir hasta dos secciones de un mismo artículo, sumar más listas curadas o escribir textos propios. |
-| 1020 textos para revisar por idioma | Aplicar filtros estrictos antes, revisar por lotes y conservar las decisiones. Es el mayor costo del plan. |
+| Pocos textos buenos para las metas altas | Control al final de la Fase 2. Unir hasta dos secciones de un mismo artículo, sumar más listas curadas o escribir textos propios. |
+| 1020 textos para revisar | Aplicar filtros estrictos antes, revisar por lotes y conservar las decisiones. Es el mayor costo del plan. |
 | Metas difíciles de alcanzar y abandono | El umbral de 3 estrellas permite seguir avanzando. Se ajusta en la Fase 6. |
 | Confusión entre "Progreso" y "Progresión" | Separarlas visualmente en el menú y revisar el nombre al probar la Fase 1. |
 | Errores de atribución o licencia | Fuente y revisión obligatorias, validadas por una prueba, y revisión antes de publicar. |

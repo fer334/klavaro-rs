@@ -36,7 +36,7 @@ use crate::keys::Keys;
 use crate::plot::Plot;
 use crate::profile::Profile;
 use crate::progress::{Chart, ChartQuery, Metric};
-use crate::sections::{SectionView, SectionsView};
+use crate::sections::{LESSONS_LANGUAGE, SectionView, SectionsView};
 use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
 use crate::style;
@@ -135,7 +135,7 @@ struct App {
     tip_waiting: bool,
     /// Versión nueva publicada, si la hay.
     release: Option<Release>,
-    /// Progresión: estrellas de cada lección en el idioma de los textos.
+    /// Progresión: estrellas de cada lección.
     ladder: Ladder,
     /// Progresión: mejores resultados de cada lección.
     bests: BTreeMap<Slot, LessonBest>,
@@ -282,11 +282,11 @@ impl App {
         });
     }
 
-    /// Lee los resultados de la Progresión en el idioma de los textos.
+    /// Lee los resultados de la Progresión.
     fn load_lessons(&mut self) {
         let bests = self
             .profile
-            .lesson_bests(&self.language)
+            .lesson_bests(LESSONS_LANGUAGE)
             .unwrap_or_else(|e| {
                 self.error = Some(e.to_string());
                 Vec::new()
@@ -318,7 +318,7 @@ impl App {
             module: Module::Progression,
             lesson: self.lesson,
             paragraphs: 0,
-            language: self.language.clone(),
+            language: LESSONS_LANGUAGE.to_owned(),
             slot: Some(slot),
         };
         self.start_spec(spec)
@@ -470,7 +470,6 @@ impl App {
             Message::LanguageSelected(l) => {
                 self.language = l;
                 self.persist();
-                self.load_lessons();
                 if matches!(self.screen, Screen::Top10(_)) {
                     self.show_top10();
                 }

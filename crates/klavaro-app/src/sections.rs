@@ -17,6 +17,9 @@ pub(crate) const SECTION_COLUMNS: u16 = 4;
 pub(crate) const LESSON_COLUMNS: u16 = 6;
 /// Identificador de los textos provisionales en el registro de intentos.
 pub(crate) const PROVISIONAL_TEXT_ID: &str = "provisional";
+/// Idioma de los ejercicios: por ahora la Progresión es sólo en inglés, sea cual sea el idioma
+/// de los textos elegido para los demás módulos.
+pub(crate) const LESSONS_LANGUAGE: &str = "C";
 /// Tolerancia en el largo de un texto, respecto del que dura 60 s a la meta de la lección.
 pub(crate) const LENGTH_TOLERANCE: f64 = 0.15;
 

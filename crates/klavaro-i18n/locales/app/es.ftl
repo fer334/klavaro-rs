@@ -86,7 +86,7 @@ update-download = Descargar
 
 module-progression = Progresión
 sections-back = Volver
-module-progression-tip = Suba de 20 a 100 PPM, lección a lección, ganando estrellas.
+module-progression-tip = Suba de 20 a 100 PPM, lección a lección, ganando estrellas. Textos en inglés.
 sections-section = Sección de { $section } PPM
 sections-intro = Cada sección tiene 30 lecciones, y cada lección pide un poco más de velocidad que la anterior, hasta la meta de { $goal } PPM.
 sections-keys = Flechas: moverse · Intro: abrir · Esc: volver
