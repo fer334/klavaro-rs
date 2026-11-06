@@ -75,7 +75,8 @@ impl Goals {
             Module::Basic => self.basic,
             Module::Adaptability => self.adaptability,
             Module::Velocity => self.velocity,
-            Module::Fluidity => self.fluidity,
+            // La Progresión tiene sus propias metas por lección (ver `progression`).
+            Module::Fluidity | Module::Progression => self.fluidity,
         }
     }
 
@@ -95,7 +96,7 @@ impl Goals {
             Module::Basic => self.basic_comment(stats, ctx),
             Module::Adaptability => self.adapt_comment(stats),
             Module::Velocity => self.velo_comment(stats),
-            Module::Fluidity => self.fluid_comment(stats),
+            Module::Fluidity | Module::Progression => self.fluid_comment(stats),
         }
     }
 

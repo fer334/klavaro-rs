@@ -3,6 +3,9 @@
 //!
 //! Toda la lógica vive en [`crate::tutor`]; este módulo sólo traduce eventos y dibuja.
 
+mod sections;
+
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::advanced::input_method;
@@ -18,9 +21,11 @@ use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, T
 use klavaro_core::Module;
 use klavaro_core::generators::basic::MAX_LESSONS;
 use klavaro_core::keyboard::FingerMap;
+use klavaro_core::progression::{self, Ladder, NextStep, Slot};
 use klavaro_core::ranking::RankingEntry;
 use klavaro_core::tracker::KeyTracker;
 use klavaro_i18n::Translator;
+use klavaro_store::LessonBest;
 use klavaro_store::date::format_date_time;
 
 use crate::assets;
@@ -31,10 +36,11 @@ use crate::keys::Keys;
 use crate::plot::Plot;
 use crate::profile::Profile;
 use crate::progress::{Chart, ChartQuery, Metric};
+use crate::sections::{SectionView, SectionsView};
 use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
 use crate::style;
-use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
+use crate::tutor::{Direction, Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 use crate::typing::Typing;
 use crate::update::{self, Release};
 
@@ -84,6 +90,10 @@ enum Screen {
     Progress(ProgressView),
     Top10(Vec<RankingEntry>),
     Settings(Box<SettingsForm>),
+    /// Progresión: selección de sección.
+    Sections(SectionsView),
+    /// Progresión: lecciones de una sección.
+    Section(SectionView),
 }
 
 /// Estado de la pantalla de progreso.
@@ -125,6 +135,10 @@ struct App {
     tip_waiting: bool,
     /// Versión nueva publicada, si la hay.
     release: Option<Release>,
+    /// Progresión: estrellas de cada lección en el idioma de los textos.
+    ladder: Ladder,
+    /// Progresión: mejores resultados de cada lección.
+    bests: BTreeMap<Slot, LessonBest>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +180,12 @@ enum Message {
     ReleaseFound(Option<Release>),
     /// Abre la página de la versión nueva.
     OpenRelease,
+    /// Abre la selección de sección de la Progresión.
+    OpenSections,
+    /// Abre las lecciones de una sección.
+    OpenSection(u16),
+    /// Empieza una lección.
+    StartLesson(Slot),
 }
 
 impl App {
@@ -218,8 +238,11 @@ impl App {
             finger_tip: None,
             tip_waiting: false,
             release: None,
+            ladder: Ladder::default(),
+            bests: BTreeMap::new(),
         };
         app.load_tracker();
+        app.load_lessons();
         if app.profile.config.autostart
             && let Some(m) = app.profile.config.last_module
             && let Err(e) = app.start(m)
@@ -259,6 +282,111 @@ impl App {
         });
     }
 
+    /// Lee los resultados de la Progresión en el idioma de los textos.
+    fn load_lessons(&mut self) {
+        let bests = self
+            .profile
+            .lesson_bests(&self.language)
+            .unwrap_or_else(|e| {
+                self.error = Some(e.to_string());
+                Vec::new()
+            });
+        self.ladder = crate::sections::ladder(&bests);
+        self.bests = bests.into_iter().map(|b| (b.slot, b)).collect();
+    }
+
+    /// Abre la selección de sección.
+    fn open_sections(&mut self) {
+        self.leave_tutor();
+        self.screen = Screen::Sections(SectionsView::new(&self.ladder));
+    }
+
+    /// Abre las lecciones de una sección, si está abierta.
+    fn open_section(&mut self, section: u16) {
+        if self.ladder.section_unlocked(section) {
+            self.leave_tutor();
+            self.screen = Screen::Section(SectionView::new(section, &self.ladder));
+        }
+    }
+
+    /// Empieza una lección, si está abierta.
+    fn start_lesson(&mut self, slot: Slot) -> std::io::Result<()> {
+        if !self.ladder.lesson_unlocked(slot) {
+            return Ok(());
+        }
+        let spec = ExerciseSpec {
+            module: Module::Progression,
+            lesson: self.lesson,
+            paragraphs: 0,
+            language: self.language.clone(),
+            slot: Some(slot),
+        };
+        self.start_spec(spec)
+    }
+
+    /// Enter al terminar una lección: pasa a la siguiente si está abierta y si no, la repite.
+    fn next_lesson(&mut self) -> std::io::Result<()> {
+        let Screen::Tutor(t) = &mut self.screen else {
+            return Ok(());
+        };
+        let Some(slot) = t.spec().slot else {
+            return Ok(());
+        };
+        self.note = None;
+        match self.ladder.next_step(slot) {
+            NextStep::Open(next) => self.start_lesson(next),
+            NextStep::Completed => {
+                self.open_section(slot.section());
+                Ok(())
+            }
+            NextStep::NeedsPassStars | NextStep::NeedsSection => t.restart(),
+        }
+    }
+
+    /// Vuelve a la pantalla anterior.
+    fn back(&mut self) {
+        let lesson = match &self.screen {
+            Screen::Tutor(t) => t.spec().slot,
+            _ => None,
+        };
+        let in_section = matches!(self.screen, Screen::Section(_));
+        self.leave_tutor();
+        if let Some(slot) = lesson {
+            self.open_section(slot.section());
+        } else if in_section {
+            self.open_sections();
+        } else {
+            self.screen = Screen::Menu;
+        }
+    }
+
+    /// Teclas en las pantallas de la Progresión.
+    fn sections_key(&mut self, input: Input) -> std::io::Result<()> {
+        match input {
+            Input::Restart => self.back(),
+            Input::ToggleTheme => {
+                self.dark = !self.dark;
+                self.persist();
+            }
+            Input::Move(direction) => match &mut self.screen {
+                Screen::Sections(v) => v.step(direction),
+                Screen::Section(v) => v.step(direction),
+                _ => {}
+            },
+            Input::Enter => match self.screen {
+                Screen::Sections(v) => self.open_section(v.cursor),
+                Screen::Section(v) => {
+                    if let Some(slot) = v.slot() {
+                        return self.start_lesson(slot);
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Sale de la pantalla del tutor (si está en ella): recupera y guarda el rastreo.
     fn leave_tutor(&mut self) {
         if let Screen::Tutor(t) = std::mem::replace(&mut self.screen, Screen::Menu) {
@@ -294,6 +422,9 @@ impl App {
         if let Err(e) = self.profile.save_tracker(&self.keyboard, t.tracker()) {
             self.error = Some(e.to_string());
         }
+        if t.spec().module == Module::Progression {
+            self.load_lessons();
+        }
     }
 
     fn title(&self) -> String {
@@ -301,6 +432,12 @@ impl App {
             Screen::Menu => "klavaro-rs".to_owned(),
             Screen::Tutor(t) => {
                 format!("klavaro-rs · {}", module_name(&self.tr, t.spec().module))
+            }
+            Screen::Sections(_) | Screen::Section(_) => {
+                format!(
+                    "klavaro-rs · {}",
+                    module_name(&self.tr, Module::Progression)
+                )
             }
             Screen::Progress(_) => format!("klavaro-rs · {}", self.tr.tr("menu-progress")),
             Screen::Top10(_) => format!("klavaro-rs · {}", self.tr.tr("menu-top10")),
@@ -333,6 +470,7 @@ impl App {
             Message::LanguageSelected(l) => {
                 self.language = l;
                 self.persist();
+                self.load_lessons();
                 if matches!(self.screen, Screen::Top10(_)) {
                     self.show_top10();
                 }
@@ -351,9 +489,11 @@ impl App {
                 Ok(())
             }
             Message::Back => {
-                self.leave_tutor();
-                self.screen = Screen::Menu;
+                self.back();
                 Ok(())
+            }
+            m @ (Message::OpenSections | Message::OpenSection(_) | Message::StartLesson(_)) => {
+                self.update_sections(&m)
             }
             Message::ToggleSpecial | Message::Restart | Message::LessonDelta(_) => {
                 self.update_tutor(&message)
@@ -417,7 +557,18 @@ impl App {
                 Task::none()
             }
         };
-        Task::batch([tip, self.follow_cursor()])
+        Task::batch([tip, self.follow_cursor(), self.follow_grid()])
+    }
+
+    /// Mensajes de las pantallas de la Progresión.
+    fn update_sections(&mut self, message: &Message) -> std::io::Result<()> {
+        match *message {
+            Message::OpenSections => self.open_sections(),
+            Message::OpenSection(section) => self.open_section(section),
+            Message::StartLesson(slot) => return self.start_lesson(slot),
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Mensajes de los botones del ejercicio (fuera de él no hacen nada).
@@ -604,14 +755,23 @@ impl App {
     }
 
     fn start(&mut self, module: Module) -> std::io::Result<()> {
-        let layout = assets::keyboard(&self.keyboard)?;
         let config = &self.profile.config;
         let spec = ExerciseSpec {
             module,
             lesson: self.lesson,
             paragraphs: usize::from(config.fluid_paragraphs),
             language: self.language.clone(),
+            slot: None,
         };
+        self.start_spec(spec)?;
+        self.profile.config.last_module = Some(module);
+        self.persist();
+        Ok(())
+    }
+
+    /// Abre la pantalla del tutor con un ejercicio.
+    fn start_spec(&mut self, spec: ExerciseSpec) -> std::io::Result<()> {
+        let layout = assets::keyboard(&self.keyboard)?;
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_secs());
@@ -628,8 +788,6 @@ impl App {
         self.error = None;
         self.note = None;
         self.notice = None;
-        self.profile.config.last_module = Some(module);
-        self.persist();
         Ok(())
     }
 
@@ -707,8 +865,12 @@ impl App {
                     self.dark = !self.dark;
                     self.persist();
                 }
+                if effect.next_lesson {
+                    return self.next_lesson();
+                }
                 Ok(())
             }
+            Screen::Sections(_) | Screen::Section(_) => self.sections_key(input),
             Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
                 match input {
                     Input::Restart => self.screen = Screen::Menu,
@@ -726,6 +888,10 @@ impl App {
                     Input::Char('p' | 'P') => {
                         let module = self.profile.config.last_module.unwrap_or(Module::Basic);
                         self.show_progress(module, Metric::Accuracy, self.lesson);
+                        return Ok(());
+                    }
+                    Input::Char('n' | 'N') => {
+                        self.open_sections();
                         return Ok(());
                     }
                     Input::Char('t' | 'T') => {
@@ -761,6 +927,8 @@ impl App {
             Screen::Progress(v) => self.view_progress(v),
             Screen::Top10(entries) => self.view_top10(entries),
             Screen::Settings(form) => self.view_settings(form),
+            Screen::Sections(v) => self.view_sections(v),
+            Screen::Section(v) => self.view_section(v),
         };
         let mut page = column![].spacing(16);
         if let Some(e) = &self.error {
@@ -857,6 +1025,7 @@ impl App {
                 colors,
             ]
             .align_y(Alignment::Center),
+            self.progression_card(),
             modules,
             self.menu_options(),
             row![
@@ -943,10 +1112,12 @@ impl App {
     fn view_tutor<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
         let tr = &self.tr;
         let spec = tutor.spec();
+        let title = spec.slot.map_or_else(
+            || module_name(tr, spec.module),
+            |slot| self.lesson_title(slot),
+        );
         let heading = column![
-            text(module_name(tr, spec.module))
-                .size(20)
-                .font(style::BOLD),
+            text(title).size(20).font(style::BOLD),
             text(format!("{} · {}", spec.language, self.keyboard))
                 .size(13)
                 .style(style::muted),
@@ -993,12 +1164,22 @@ impl App {
                 .into(),
             );
         }
-        actions.push(action(tr.tr("tutor-new"), Message::Restart));
-        actions.push(action(
-            tr.tr("menu-progress"),
-            Message::Progress(Some(spec.module)),
-        ));
-        let header = top_bar(tr, heading.into(), actions);
+        if spec.slot.is_some() {
+            actions.push(action(tr.tr("sections-retry"), Message::Restart));
+        } else {
+            actions.push(action(tr.tr("tutor-new"), Message::Restart));
+            actions.push(action(
+                tr.tr("menu-progress"),
+                Message::Progress(Some(spec.module)),
+            ));
+        }
+        // Desde una lección, volver lleva a la grilla de su sección y no al menú.
+        let back = if spec.slot.is_some() {
+            "sections-back"
+        } else {
+            "menu-back"
+        };
+        let header = bar_with_back(&tr.tr(back), heading.into(), actions);
 
         let palette = Palette::new(self.dark);
         let spans: Vec<Span<'_, Message>> = tutor
@@ -1064,7 +1245,9 @@ impl App {
     fn tutor_footer<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
         let tr = &self.tr;
         let spec = tutor.spec();
-        if let Some(o) = tutor.outcome() {
+        if let Some((o, result)) = tutor.outcome().and_then(|o| o.lesson.map(|r| (o, r))) {
+            self.lesson_result(o, result)
+        } else if let Some(o) = tutor.outcome() {
             let colors = style::Colors::new(self.dark);
             let mark = |ok: bool| if ok { colors.success } else { colors.danger };
             let value = |key: &str, v: f64| tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
@@ -1103,23 +1286,32 @@ impl App {
                 .into()
         } else {
             let (done, total) = tutor.progress();
-            let key = if spec.module == Module::Fluidity {
-                "tutor-hint-backspace"
-            } else {
-                "tutor-hint"
+            let key = match spec.module {
+                Module::Fluidity => "tutor-hint-backspace",
+                Module::Progression => "sections-hint",
+                _ => "tutor-hint",
             };
+            let lesson_status = spec.slot.map(|slot| {
+                self.lesson_status(slot, progression::time_limit(total, slot), tutor.elapsed())
+            });
             let ratio = done as f32 / total.max(1) as f32;
             let (done, total) = (done.to_string(), total.to_string());
-            column![
-                progress_bar(0.0..=1.0, ratio)
-                    .girth(6)
-                    .style(style::progress),
-                text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
-                    .size(13)
-                    .style(style::muted),
-            ]
-            .spacing(8)
-            .into()
+            let mut footer = column![].spacing(8);
+            if let Some(status) = lesson_status {
+                footer = footer.push(status);
+            }
+            footer
+                .push(
+                    progress_bar(0.0..=1.0, ratio)
+                        .girth(6)
+                        .style(style::progress),
+                )
+                .push(
+                    text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
+                        .size(13)
+                        .style(style::muted),
+                )
+                .into()
         }
     }
 
@@ -1153,9 +1345,11 @@ impl App {
         // Igual que el título de la ventana del original: teclado o idioma según el módulo.
         let scope = match v.module {
             Module::Basic | Module::Adaptability => self.keyboard.clone(),
-            Module::Velocity | Module::Fluidity => klavaro_i18n::native_name(&self.language)
-                .unwrap_or(&self.language)
-                .to_owned(),
+            Module::Velocity | Module::Fluidity | Module::Progression => {
+                klavaro_i18n::native_name(&self.language)
+                    .unwrap_or(&self.language)
+                    .to_owned()
+            }
         };
         let mut filters = row![text(scope).size(13).style(style::muted)]
             .spacing(12)
@@ -1402,8 +1596,17 @@ fn top_bar<'a>(
     title: Element<'a, Message>,
     actions: impl IntoIterator<Item = Element<'a, Message>>,
 ) -> Element<'a, Message> {
+    bar_with_back(&tr.tr("menu-back"), title, actions)
+}
+
+/// Barra superior con el texto dado en el botón de volver.
+fn bar_with_back<'a>(
+    back: &str,
+    title: Element<'a, Message>,
+    actions: impl IntoIterator<Item = Element<'a, Message>>,
+) -> Element<'a, Message> {
     row![
-        button(text(format!("← {}", tr.tr("menu-back"))))
+        button(text(format!("← {back}")))
             .style(style::ghost)
             .padding([8, 12])
             .on_press(Message::Back),
@@ -1652,6 +1855,10 @@ fn on_event(event: Event, status: event::Status, _window: iced::window::Id) -> O
         keyboard::Key::Named(Named::Backspace) => Some(NamedKey::Backspace),
         keyboard::Key::Named(Named::Escape) => Some(NamedKey::Escape),
         keyboard::Key::Named(Named::Space) => Some(NamedKey::Space),
+        keyboard::Key::Named(Named::ArrowUp) => Some(NamedKey::Arrow(Direction::Up)),
+        keyboard::Key::Named(Named::ArrowDown) => Some(NamedKey::Arrow(Direction::Down)),
+        keyboard::Key::Named(Named::ArrowLeft) => Some(NamedKey::Arrow(Direction::Left)),
+        keyboard::Key::Named(Named::ArrowRight) => Some(NamedKey::Arrow(Direction::Right)),
         _ => None,
     };
     let ctrl = modifiers.control() || modifiers.command();

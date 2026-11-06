@@ -260,7 +260,8 @@ pub fn session_from_stat(module: Module, r: &StatRecord) -> Option<SessionRecord
     let (lesson, keyboard, language) = match module {
         Module::Basic => (Some(r.lesson.clone()), Some(r.tag.clone()), None),
         Module::Adaptability => (None, Some(r.lesson.clone()), Some(language_code(&r.tag))),
-        Module::Velocity | Module::Fluidity => {
+        // La Progresión no existe en el original.
+        Module::Velocity | Module::Fluidity | Module::Progression => {
             (Some(r.lesson.clone()), None, Some(language_code(&r.tag)))
         }
     };

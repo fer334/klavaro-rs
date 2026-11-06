@@ -52,6 +52,7 @@ pub(crate) fn run(opts: &PracticeOptions) -> io::Result<()> {
         .duration_since(UNIX_EPOCH)
         .map_or(1, |d| d.as_secs());
     let spec = ExerciseSpec {
+        slot: None,
         module: opts.module,
         lesson: opts.lesson,
         paragraphs: 1,

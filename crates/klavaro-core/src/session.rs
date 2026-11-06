@@ -9,7 +9,7 @@
 //!
 //! - **Sin corrección** (Básico, Adaptabilidad, Velocidad): cada tecla avanza el cursor; los
 //!   errores quedan marcados y Backspace se ignora.
-//! - **Con corrección** (Fluidez): tras un error el cursor sigue avanzando, pero hay que volver
+//! - **Con corrección** (Fluidez, Progresión): tras un error el cursor sigue avanzando, pero hay que volver
 //!   con Backspace y reescribir; lo reescrito queda como "corregido" y cuenta como error.
 
 use std::time::Duration;
@@ -142,6 +142,14 @@ impl Session {
     /// Si el ejercicio terminó.
     pub fn is_finished(&self) -> bool {
         self.result.is_some()
+    }
+
+    /// Tiempo desde la primera tecla hasta la última recibida (cero antes de empezar).
+    pub fn elapsed(&self) -> Duration {
+        match (self.started_at, self.last_at) {
+            (Some(start), Some(last)) => last.saturating_sub(start),
+            _ => Duration::ZERO,
+        }
     }
 
     /// Procesa una tecla recibida en el instante `at` (medido desde cualquier origen fijo,

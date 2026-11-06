@@ -39,7 +39,9 @@ impl Metric {
         match module {
             Module::Fluidity => &[Self::Accuracy, Self::Speed, Self::Fluidity, Self::Score],
             Module::Adaptability => &[Self::Accuracy, Self::Speed, Self::Errors, Self::TouchTimes],
-            Module::Basic | Module::Velocity => &[Self::Accuracy, Self::Speed],
+            Module::Basic | Module::Velocity | Module::Progression => {
+                &[Self::Accuracy, Self::Speed]
+            }
         }
     }
 
@@ -296,7 +298,9 @@ fn filter(q: &ChartQuery) -> SessionFilter {
             f.keyboard = Some(q.keyboard.clone());
         }
         Module::Adaptability => f.keyboard = Some(q.keyboard.clone()),
-        Module::Velocity | Module::Fluidity => f.language = Some(q.language.clone()),
+        Module::Velocity | Module::Fluidity | Module::Progression => {
+            f.language = Some(q.language.clone());
+        }
     }
     f
 }

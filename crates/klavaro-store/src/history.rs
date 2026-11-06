@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use klavaro_core::Module;
 use klavaro_core::metrics::Stats;
+use klavaro_core::progression::Slot;
 use klavaro_core::ranking::{Ranking, RankingEntry};
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -16,7 +17,7 @@ use crate::config::module_key;
 use crate::{Result, io_error};
 
 /// Versión del esquema (`PRAGMA user_version`).
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sessions (
@@ -50,6 +51,24 @@ CREATE TABLE IF NOT EXISTS scores (
     chars    INTEGER NOT NULL,
     language TEXT    NOT NULL
 );
+CREATE TABLE IF NOT EXISTS progression_attempts (
+    id         INTEGER PRIMARY KEY,
+    at         INTEGER NOT NULL,
+    language   TEXT    NOT NULL,
+    section    INTEGER NOT NULL,
+    lesson     INTEGER NOT NULL,
+    target_wpm REAL    NOT NULL,
+    text_id    TEXT    NOT NULL,
+    keyboard   TEXT    NOT NULL,
+    wpm        REAL    NOT NULL,
+    accuracy   REAL    NOT NULL,
+    fluidity   REAL    NOT NULL,
+    score      REAL    NOT NULL,
+    stars      INTEGER NOT NULL,
+    elapsed_ms INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS progression_by_lesson
+    ON progression_attempts (language, section, lesson);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -116,6 +135,49 @@ impl SessionRecord {
             language: None,
         }
     }
+}
+
+/// Un intento de una lección de la Progresión.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LessonAttempt {
+    /// Instante (segundos desde 1970).
+    pub at: i64,
+    /// Idioma de los textos.
+    pub language: String,
+    /// La lección.
+    pub slot: Slot,
+    /// Meta de la lección en este intento, en PPM.
+    pub target_wpm: f64,
+    /// Texto escrito. Es sólo un registro: el progreso se asocia a la lección, así un texto
+    /// reemplazado en una versión nueva no hace perder estrellas.
+    pub text_id: String,
+    /// Distribución de teclado.
+    pub keyboard: String,
+    /// Velocidad (PPM).
+    pub wpm: f64,
+    /// Precisión (%).
+    pub accuracy: f64,
+    /// Fluidez.
+    pub fluidity: f64,
+    /// Puntaje.
+    pub score: f64,
+    /// Estrellas.
+    pub stars: u8,
+    /// Duración.
+    pub elapsed: Duration,
+}
+
+/// Mejores valores de una lección entre todos sus intentos.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LessonBest {
+    /// La lección.
+    pub slot: Slot,
+    /// Más estrellas.
+    pub stars: u8,
+    /// Mayor velocidad (PPM).
+    pub wpm: f64,
+    /// Mayor puntaje.
+    pub score: f64,
 }
 
 /// Qué sesiones leer con [`History::sessions`]. Los campos en `None` no filtran.
@@ -211,6 +273,83 @@ impl History {
         }
         tx.commit()?;
         Ok(())
+    }
+
+    /// Guarda un intento de una lección de la Progresión y su sesión en el historial, en una
+    /// transacción.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la escritura; en ese caso no se guarda ninguno de los dos.
+    pub fn record_lesson(
+        &mut self,
+        attempt: &LessonAttempt,
+        session: &SessionRecord,
+    ) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO progression_attempts (at, language, section, lesson, target_wpm, text_id,
+                                               keyboard, wpm, accuracy, fluidity, score, stars,
+                                               elapsed_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                attempt.at,
+                attempt.language,
+                attempt.slot.section(),
+                attempt.slot.lesson(),
+                attempt.target_wpm,
+                attempt.text_id,
+                attempt.keyboard,
+                attempt.wpm,
+                attempt.accuracy,
+                attempt.fluidity,
+                attempt.score,
+                attempt.stars,
+                i64::try_from(attempt.elapsed.as_millis()).unwrap_or(i64::MAX),
+            ],
+        )?;
+        insert_session(&tx, session)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Mejores valores de cada lección jugada en un idioma, en orden. Los valores salen de todos
+    /// los intentos, así que un resultado peor nunca los baja. Se ignoran las lecciones que no
+    /// existen en esta versión.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la lectura.
+    pub fn lesson_bests(&self, language: &str) -> Result<Vec<LessonBest>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT section, lesson, MAX(stars), MAX(wpm), MAX(score)
+             FROM progression_attempts
+             WHERE language = ?1
+             GROUP BY section, lesson
+             ORDER BY section, lesson",
+        )?;
+        let rows = stmt.query_map([language], |row| {
+            Ok((
+                row.get::<_, u16>(0)?,
+                row.get::<_, u16>(1)?,
+                row.get::<_, u8>(2)?,
+                row.get::<_, f64>(3)?,
+                row.get::<_, f64>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (section, lesson, stars, wpm, score) = row?;
+            if let Some(slot) = Slot::new(section, lesson) {
+                out.push(LessonBest {
+                    slot,
+                    stars,
+                    wpm,
+                    score,
+                });
+            }
+        }
+        Ok(out)
     }
 
     /// Las últimas `limit` sesiones de un módulo, de la más vieja a la más nueva.
@@ -451,6 +590,36 @@ mod tests {
         }
     }
 
+    fn slot(section: u16, lesson: u16) -> Slot {
+        Slot::new(section, lesson).expect("lección")
+    }
+
+    fn attempt(language: &str, slot: Slot, stars: u8, wpm: f64) -> LessonAttempt {
+        LessonAttempt {
+            at: 10,
+            language: language.into(),
+            slot,
+            target_wpm: slot.target_wpm(),
+            text_id: "t1".into(),
+            keyboard: "dvorak".into(),
+            wpm,
+            accuracy: 97.0,
+            fluidity: 70.0,
+            score: wpm / 10.0,
+            stars,
+            elapsed: Duration::from_secs(60),
+        }
+    }
+
+    fn save(h: &mut History, a: &LessonAttempt) {
+        let session = SessionRecord::from_stats(
+            Module::Progression,
+            a.at,
+            &Stats::compute(100, 0, a.elapsed, &[]),
+        );
+        h.record_lesson(a, &session).expect("guardar");
+    }
+
     fn entry(score: f64) -> RankingEntry {
         RankingEntry {
             name: "Ana [qwerty_es]".into(),
@@ -462,6 +631,86 @@ mod tests {
             fluidity: 70.0,
             score,
         }
+    }
+
+    #[test]
+    fn a_worse_attempt_keeps_the_best_results() {
+        let mut h = History::in_memory().expect("base");
+        let lesson = slot(75, 3);
+        save(&mut h, &attempt("es", lesson, 4, 70.0));
+        save(&mut h, &attempt("es", lesson, 2, 50.0));
+        save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
+        let bests = h.lesson_bests("es").expect("leer");
+        assert_eq!(bests.len(), 2);
+        assert_eq!(bests[0].slot, slot(20, 1));
+        assert_eq!(bests[1].slot, lesson);
+        assert_eq!(bests[1].stars, 4);
+        assert!((bests[1].wpm - 70.0).abs() < 1e-9);
+        assert!((bests[1].score - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn lesson_progress_survives_closing_the_database() {
+        let dir = tempfile::tempdir().expect("carpeta");
+        let path = dir.path().join("history.sqlite3");
+        {
+            let mut h = History::open(&path).expect("abrir");
+            save(&mut h, &attempt("es", slot(20, 1), 4, 22.0));
+        }
+        let h = History::open(&path).expect("reabrir");
+        let bests = h.lesson_bests("es").expect("leer");
+        assert_eq!(bests.len(), 1);
+        assert_eq!(bests[0].stars, 4);
+    }
+
+    #[test]
+    fn lesson_progress_is_kept_per_language() {
+        let mut h = History::in_memory().expect("base");
+        save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
+        assert_eq!(h.lesson_bests("C").expect("leer"), Vec::new());
+        assert_eq!(h.lesson_bests("es").expect("leer").len(), 1);
+    }
+
+    #[test]
+    fn a_lesson_attempt_also_enters_the_history() {
+        let mut h = History::in_memory().expect("base");
+        save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
+        assert_eq!(h.count(Module::Progression).expect("contar"), 1);
+    }
+
+    #[test]
+    fn unknown_lessons_are_ignored() {
+        let mut h = History::in_memory().expect("base");
+        save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
+        h.conn
+            .execute("UPDATE progression_attempts SET section = 21", [])
+            .expect("editar");
+        assert_eq!(h.lesson_bests("es").expect("leer"), Vec::new());
+    }
+
+    #[test]
+    fn upgrades_a_version_2_database_without_losing_data() {
+        let conn = Connection::open_in_memory().expect("base");
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                 id INTEGER PRIMARY KEY, module TEXT NOT NULL, at INTEGER NOT NULL,
+                 accuracy REAL NOT NULL, wpm REAL NOT NULL, fluidity REAL NOT NULL,
+                 touches INTEGER, errors INTEGER, elapsed_ms INTEGER, lesson TEXT,
+                 keyboard TEXT, language TEXT);
+             INSERT INTO sessions (module, at, accuracy, wpm, fluidity)
+                 VALUES ('fluid', 5, 98.0, 40.0, 70.0);
+             PRAGMA user_version = 2;",
+        )
+        .expect("esquema 2");
+        let mut h = History::init(conn).expect("actualizar");
+        let version: i64 = h
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .expect("versión");
+        assert_eq!(version, SCHEMA_VERSION);
+        assert_eq!(h.count(Module::Fluidity).expect("contar"), 1);
+        save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
+        assert_eq!(h.lesson_bests("es").expect("leer").len(), 1);
     }
 
     #[test]
