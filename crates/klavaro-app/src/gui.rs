@@ -24,6 +24,7 @@ use klavaro_core::keyboard::FingerMap;
 use klavaro_core::progression::{self, Ladder, NextStep, Slot};
 use klavaro_core::ranking::RankingEntry;
 use klavaro_core::tracker::KeyTracker;
+use klavaro_data::catalog::CatalogEntry;
 use klavaro_i18n::Translator;
 use klavaro_store::LessonBest;
 use klavaro_store::date::format_date_time;
@@ -94,6 +95,8 @@ enum Screen {
     Sections(SectionsView),
     /// Progresión: lecciones de una sección.
     Section(SectionView),
+    /// Progresión: origen y licencia de los textos.
+    Credits(Vec<CatalogEntry>),
 }
 
 /// Estado de la pantalla de progreso.
@@ -186,6 +189,10 @@ enum Message {
     OpenSection(u16),
     /// Empieza una lección.
     StartLesson(Slot),
+    /// Abre el origen y la licencia de los textos.
+    OpenCredits,
+    /// Abre una página del navegador (fuente o licencia de un texto).
+    OpenLink(String),
 }
 
 impl App {
@@ -349,7 +356,7 @@ impl App {
             Screen::Tutor(t) => t.spec().slot,
             _ => None,
         };
-        let in_section = matches!(self.screen, Screen::Section(_));
+        let in_section = matches!(self.screen, Screen::Section(_) | Screen::Credits(_));
         self.leave_tutor();
         if let Some(slot) = lesson {
             self.open_section(slot.section());
@@ -433,7 +440,7 @@ impl App {
             Screen::Tutor(t) => {
                 format!("klavaro-rs · {}", module_name(&self.tr, t.spec().module))
             }
-            Screen::Sections(_) | Screen::Section(_) => {
+            Screen::Sections(_) | Screen::Section(_) | Screen::Credits(_) => {
                 format!(
                     "klavaro-rs · {}",
                     module_name(&self.tr, Module::Progression)
@@ -491,9 +498,11 @@ impl App {
                 self.back();
                 Ok(())
             }
-            m @ (Message::OpenSections | Message::OpenSection(_) | Message::StartLesson(_)) => {
-                self.update_sections(&m)
-            }
+            m @ (Message::OpenSections
+            | Message::OpenSection(_)
+            | Message::StartLesson(_)
+            | Message::OpenCredits
+            | Message::OpenLink(_)) => self.update_sections(&m),
             Message::ToggleSpecial | Message::Restart | Message::LessonDelta(_) => {
                 self.update_tutor(&message)
             }
@@ -561,10 +570,14 @@ impl App {
 
     /// Mensajes de las pantallas de la Progresión.
     fn update_sections(&mut self, message: &Message) -> std::io::Result<()> {
-        match *message {
+        match message {
             Message::OpenSections => self.open_sections(),
-            Message::OpenSection(section) => self.open_section(section),
-            Message::StartLesson(slot) => return self.start_lesson(slot),
+            Message::OpenSection(section) => self.open_section(*section),
+            Message::StartLesson(slot) => return self.start_lesson(*slot),
+            Message::OpenCredits => {
+                self.screen = Screen::Credits(assets::lessons_catalog(LESSONS_LANGUAGE)?);
+            }
+            Message::OpenLink(url) => update::open_in_browser(url),
             _ => {}
         }
         Ok(())
@@ -869,7 +882,9 @@ impl App {
                 }
                 Ok(())
             }
-            Screen::Sections(_) | Screen::Section(_) => self.sections_key(input),
+            Screen::Sections(_) | Screen::Section(_) | Screen::Credits(_) => {
+                self.sections_key(input)
+            }
             Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
                 match input {
                     Input::Restart => self.screen = Screen::Menu,
@@ -928,6 +943,7 @@ impl App {
             Screen::Settings(form) => self.view_settings(form),
             Screen::Sections(v) => self.view_sections(v),
             Screen::Section(v) => self.view_section(v),
+            Screen::Credits(entries) => self.view_credits(entries),
         };
         let mut page = column![].spacing(16);
         if let Some(e) = &self.error {
@@ -1291,7 +1307,12 @@ impl App {
                 _ => "tutor-hint",
             };
             let lesson_status = spec.slot.map(|slot| {
-                self.lesson_status(slot, progression::time_limit(total, slot), tutor.elapsed())
+                self.lesson_status(
+                    slot,
+                    progression::time_limit(total, slot),
+                    tutor.elapsed(),
+                    &tutor.missing_keys(),
+                )
             });
             let ratio = done as f32 / total.max(1) as f32;
             let (done, total) = (done.to_string(), total.to_string());

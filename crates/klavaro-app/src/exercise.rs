@@ -16,7 +16,6 @@ use klavaro_i18n::Translator;
 
 use crate::assets;
 use crate::profile::{Notice, Recorded};
-use crate::sections;
 
 /// Qué ejercicio generar.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +59,7 @@ pub(crate) fn generate(
             &mut rng,
         ),
         Module::Progression => match spec.slot {
-            Some(slot) => sections::provisional_text(&assets::paragraphs(&spec.language)?, slot),
+            Some(slot) => Some(assets::lesson(&spec.language, slot)?.text),
             None => None,
         },
     };
@@ -209,7 +208,7 @@ mod tests {
             module: Module::Progression,
             lesson: 1,
             paragraphs: 3,
-            language: "es".to_owned(),
+            language: "C".to_owned(),
             slot: Slot::new(75, 3),
         };
         let first = generate(&spec, &layout, 1, None).expect("texto");

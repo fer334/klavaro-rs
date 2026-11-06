@@ -101,3 +101,9 @@ apt source klavaro            # o descomprimir klavaro-3.14.tar.bz2 de SourceFor
 ## Licencia
 
 GPL-3.0-or-later. Ver [LICENSE](LICENSE).
+
+Los textos de la Progresión (`assets/C.progression`) vienen de
+[Wikipedia](https://en.wikipedia.org) y [Simple English Wikipedia](https://simple.wikipedia.org), con
+licencia [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Se recortaron y adaptaron.
+Cada línea del archivo indica el artículo y la revisión de origen, y la pantalla Créditos de la
+Progresión los enlaza.

@@ -5,13 +5,15 @@
 // Archivo de pruebas: un fallo de E/S debe detener la prueba con un mensaje claro.
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use klavaro_core::generators::{LanguageRules, adaptability, basic, fluidity, velocity};
 use klavaro_core::keyboard::Finger;
+use klavaro_core::progression;
 use klavaro_core::rng::SplitMix64;
-use klavaro_data::{kbd, lessons, texts};
+use klavaro_data::{catalog, kbd, lessons, texts};
 
 fn assets() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")
@@ -139,5 +141,74 @@ fn adaptability_works_on_every_layout() {
             "{}",
             path.display()
         );
+    }
+}
+
+#[test]
+fn the_progression_catalog_is_complete_and_attributed() {
+    let entries = catalog::parse(&read(&assets().join("C.progression"))).expect("catálogo");
+    assert_eq!(entries.len(), 510);
+    let mut positions = HashSet::new();
+    let mut ids = HashSet::new();
+    let mut titles = HashSet::new();
+    for entry in &entries {
+        let slot = entry.slot;
+        assert!(positions.insert(slot), "{slot:?} repetida");
+        assert!(
+            ids.insert(entry.text_id.clone()),
+            "{} repetido",
+            entry.text_id
+        );
+        assert!(titles.insert(entry.title.to_lowercase()), "{}", entry.title);
+        assert!(!entry.title.is_empty() && entry.revision > 0, "{slot:?}");
+        assert!(
+            ["en", "simple"].contains(&entry.source.as_str()),
+            "{slot:?}"
+        );
+        assert!(entry.text_id.starts_with(&entry.source), "{slot:?}");
+        assert!(
+            entry.text.is_ascii() && entry.text.ends_with('.'),
+            "{slot:?}"
+        );
+        let chars = entry.text.chars().count() as f64;
+        let target = slot.target_chars();
+        assert!(
+            chars >= target * 0.85 && chars <= target * 1.15,
+            "{slot:?}: {chars} caracteres, se pedían {target}"
+        );
+    }
+    let mean = |section: u16| {
+        let of_section: Vec<f64> = entries
+            .iter()
+            .filter(|e| e.slot.section() == section)
+            .map(|e| e.difficulty)
+            .collect();
+        assert_eq!(of_section.len(), 30);
+        of_section.iter().sum::<f64>() / 30.0
+    };
+    let means: Vec<f64> = progression::sections().map(mean).collect();
+    assert!(means.windows(2).all(|w| w[0] < w[1]), "{means:?}");
+}
+
+#[test]
+fn the_progression_can_be_typed_on_english_keyboards() {
+    let entries = catalog::parse(&read(&assets().join("C.progression"))).expect("catálogo");
+    for name in [
+        "qwerty_us",
+        "qwerty_uk",
+        "dvorak_us",
+        "dvorak_uk",
+        "colemak_us",
+    ] {
+        let path = assets().join(format!("{name}.kbd"));
+        let layout = kbd::parse(name, &read(&path)).expect("teclado");
+        for entry in &entries {
+            let missing: Vec<char> = entry
+                .text
+                .chars()
+                .filter(|&c| c != ' ' && !layout.contains(c))
+                .collect();
+            assert_eq!(missing, Vec::<char>::new(), "{name} {:?}", entry.slot);
+        }
     }
 }

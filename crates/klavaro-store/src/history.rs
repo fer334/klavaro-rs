@@ -650,6 +650,25 @@ mod tests {
     }
 
     #[test]
+    fn progress_stays_when_a_text_is_replaced() {
+        let mut h = History::in_memory().expect("base");
+        let lesson = slot(20, 1);
+        let old = LessonAttempt {
+            text_id: "provisional".into(),
+            ..attempt("C", lesson, 5, 22.0)
+        };
+        save(&mut h, &old);
+        let new = LessonAttempt {
+            text_id: "simple-425".into(),
+            ..attempt("C", lesson, 3, 18.0)
+        };
+        save(&mut h, &new);
+        let bests = h.lesson_bests("C").expect("leer");
+        assert_eq!(bests.len(), 1);
+        assert_eq!(bests[0].stars, 5);
+    }
+
+    #[test]
     fn lesson_progress_survives_closing_the_database() {
         let dir = tempfile::tempdir().expect("carpeta");
         let path = dir.path().join("history.sqlite3");

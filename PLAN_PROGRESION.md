@@ -368,22 +368,24 @@ historia, personas, y filosofía y religión), y a lo sumo 1 texto sobre religi�
 
 ### Tareas
 
-- [ ] Crear `klavaro-data/src/catalog.rs`, con lectura, escritura y errores tipados.
-- [ ] Cargar el catálogo desde `assets.rs`, respetando `KLAVARO_ASSETS`.
-- [ ] Eliminar los textos provisionales de la Fase 1.
-- [ ] Mostrar el artículo de origen en el resultado, con enlace a la licencia.
-- [ ] Agregar una pantalla de créditos e incluir el aviso de licencia en los paquetes de
-  `tools/package.sh`. Agregar la atribución de los textos a `README.md`.
-- [ ] Avisar cuando un texto tenga caracteres que el teclado actual no puede escribir, sin bloquear
+- [x] Crear `klavaro-data/src/catalog.rs`, con lectura y errores tipados. La escritura queda en `selection.py`.
+- [x] Cargar el catálogo desde `assets.rs`, respetando `KLAVARO_ASSETS`.
+- [x] Eliminar los textos provisionales de la Fase 1.
+- [x] Mostrar el artículo de origen en el resultado, con enlace al artículo. La licencia se enlaza en Créditos.
+- [x] Agregar una pantalla de créditos e incluir el aviso de licencia en los paquetes de
+  `tools/package.sh`. Agregar la atribución de los textos a `README.md`, que va en todos los paquetes.
+- [x] Avisar cuando un texto tenga caracteres que el teclado actual no puede escribir, sin bloquear
   la lección.
 
 ### Criterios de aceptación
 
-- [ ] Una prueba en `klavaro-data/tests/assets.rs` valida cada catálogo: 510 filas, todas las
+- [x] Una prueba en `klavaro-data/tests/assets.rs` valida cada catálogo: 510 filas, todas las
   lecciones, largo y `D` correctos, y atribución completa.
-- [ ] Todos los textos se pueden escribir en las distribuciones de inglés, incluida Dvorak.
-- [ ] Un progreso guardado en la Fase 1 sigue siendo válido con el catálogo real.
-- [ ] Los paquetes de macOS, Linux y Windows funcionan sin internet y sin carpeta de datos.
+- [x] Todos los textos se pueden escribir en las distribuciones de inglés, incluida Dvorak.
+- [x] Un progreso guardado en la Fase 1 sigue siendo válido con el catálogo real.
+- [x] El binario funciona fuera del repositorio con los textos embebidos (probado en macOS).
+- [ ] Generar y probar los paquetes de macOS, Linux y Windows (queda para la Fase 6).
+- [ ] Probar en la app el resultado de una lección con el enlace a su artículo.
 
 ---
 

@@ -58,6 +58,11 @@ update-download = Download
 
 module-progression = Progression
 sections-back = Back
+sections-credits = Credits
+sections-credits-intro = The texts of these lessons come from Wikipedia and Simple English Wikipedia, under the { $license } license. They were shortened and adapted. Click a lesson to open its original article.
+sections-license = License ({ $license })
+sections-source = Text: { $title } ({ $source }, { $license }), adapted
+sections-missing-keys = This keyboard does not have: { $keys }
 module-progression-tip = Climb from 20 to 100 WPM, lesson by lesson, earning stars. Texts in English.
 sections-section = { $section } WPM section
 sections-intro = Each section has 30 lessons, and each lesson asks a little more speed than the last, up to the { $goal } WPM goal.

@@ -9,12 +9,18 @@ use klavaro_core::progression::{
     SECTION_STARS, SECTION_STEP, SECTIONS, SectionStatus, Slot, TOTAL_STARS, sections,
 };
 
-use super::{App, Message, bar_with_back, card, page_title, stat, top_bar};
+use klavaro_data::catalog::CatalogEntry;
+
+use super::{App, Message, action, bar_with_back, card, page_title, stat, top_bar};
 use crate::sections::{
-    LESSON_COLUMNS, SECTION_COLUMNS, SectionView, SectionsView, clock, star_line,
+    LESSON_COLUMNS, SECTION_COLUMNS, SectionView, SectionsView, clock, source_name, star_line,
 };
 use crate::style;
 use crate::tutor::Outcome;
+
+/// Licencia de los textos.
+const LICENSE_NAME: &str = "CC BY-SA 4.0";
+const LICENSE_URL: &str = "https://creativecommons.org/licenses/by-sa/4.0/";
 
 /// Identificador del área con las grillas, para seguir a la selección.
 const GRID_SCROLL: &str = "sections-grid";
@@ -163,7 +169,10 @@ impl App {
             top_bar(
                 tr,
                 page_title(tr.tr("module-progression")),
-                [text(total).size(18).color(colors.warning).into()],
+                [
+                    text(total).size(18).color(colors.warning).into(),
+                    action(tr.tr("sections-credits"), Message::OpenCredits),
+                ],
             ),
             text(tr.tr_args("sections-intro", &[("goal", &LAST_SECTION.to_string())]))
                 .size(14)
@@ -270,6 +279,7 @@ impl App {
         slot: Slot,
         limit: std::time::Duration,
         elapsed: std::time::Duration,
+        missing: &[char],
     ) -> Element<'a, Message> {
         let colors = style::Colors::new(self.dark);
         let time = format!("{} / {}", clock(elapsed), clock(limit));
@@ -278,7 +288,7 @@ impl App {
         } else {
             text(time)
         };
-        row![
+        let mut line = row![
             text(self.tr.tr_args(
                 "sections-goal",
                 &[("value", &format!("{:.1}", slot.target_wpm()))],
@@ -287,8 +297,16 @@ impl App {
             .font(style::BOLD),
             time.size(15).font(style::BOLD),
         ]
-        .spacing(16)
-        .into()
+        .spacing(16);
+        if !missing.is_empty() {
+            let keys: String = missing.iter().collect();
+            line = line.push(
+                text(self.tr.tr_args("sections-missing-keys", &[("keys", &keys)]))
+                    .size(13)
+                    .color(colors.warning),
+            );
+        }
+        line.into()
     }
 
     /// Resultado de una lección: estrellas, medidas y qué sigue.
@@ -342,6 +360,61 @@ impl App {
             summary = summary.push(text(note.clone()).size(15));
         }
         summary = summary.push(text(tr.tr(hint)).size(13).style(style::muted));
+        if let Some(source) = &outcome.source {
+            summary = summary.push(self.source_link(source));
+        }
         column![stats, card(summary)].spacing(12).into()
+    }
+
+    /// Enlace al artículo del que salió un texto.
+    fn source_link<'a>(&self, source: &CatalogEntry) -> Element<'a, Message> {
+        let label = self.tr.tr_args(
+            "sections-source",
+            &[
+                ("title", &source.title),
+                ("source", source_name(&source.source)),
+                ("license", LICENSE_NAME),
+            ],
+        );
+        button(text(label).size(12))
+            .style(style::ghost)
+            .padding([2, 0])
+            .on_press(Message::OpenLink(source.url()))
+            .into()
+    }
+
+    /// Origen y licencia de los textos: cada lección con un enlace a su artículo.
+    pub(super) fn view_credits<'a>(&'a self, entries: &'a [CatalogEntry]) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let lines = entries.iter().map(|entry| {
+            let label = format!(
+                "{}.{}  {} ({})",
+                entry.slot.section(),
+                entry.slot.lesson(),
+                entry.title,
+                source_name(&entry.source)
+            );
+            button(text(label).size(13))
+                .style(style::ghost)
+                .padding([3, 8])
+                .on_press(Message::OpenLink(entry.url()))
+                .into()
+        });
+        column![
+            bar_with_back(
+                &tr.tr("sections-back"),
+                page_title(tr.tr("sections-credits")),
+                [action(
+                    tr.tr_args("sections-license", &[("license", LICENSE_NAME)]),
+                    Message::OpenLink(LICENSE_URL.to_owned()),
+                )],
+            ),
+            text(tr.tr_args("sections-credits-intro", &[("license", LICENSE_NAME)]))
+                .size(14)
+                .style(style::muted),
+            scrollable(column(lines).spacing(2).width(Length::Fill)).height(Length::Fill),
+        ]
+        .spacing(16)
+        .into()
     }
 }

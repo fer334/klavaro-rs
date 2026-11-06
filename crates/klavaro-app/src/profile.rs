@@ -18,7 +18,7 @@ use klavaro_store::{
 
 use crate::exercise::ExerciseSpec;
 use crate::progress::{Chart, ChartQuery};
-use crate::sections::{self, PROVISIONAL_TEXT_ID};
+use crate::sections;
 use crate::tutor::Outcome;
 
 /// Qué pasó al registrar un ejercicio terminado.
@@ -272,7 +272,10 @@ impl Profile {
             language: spec.language.clone(),
             slot,
             target_wpm: result.target_wpm,
-            text_id: PROVISIONAL_TEXT_ID.to_owned(),
+            text_id: outcome
+                .source
+                .as_ref()
+                .map_or_else(String::new, |source| source.text_id.clone()),
             keyboard: keyboard.to_owned(),
             wpm: result.speed,
             accuracy: stats.accuracy,
@@ -356,6 +359,7 @@ mod tests {
     fn play_lesson(profile: &mut Profile, slot: Slot, ms_per_key: u64) -> Recorded {
         let spec = ExerciseSpec {
             slot: Some(slot),
+            language: sections::LESSONS_LANGUAGE.to_owned(),
             ..spec(Module::Progression)
         };
         let layout = crate::assets::keyboard("qwerty_es").expect("kbd");
@@ -372,7 +376,11 @@ mod tests {
     }
 
     fn stars_saved(profile: &Profile) -> Ladder {
-        sections::ladder(&profile.lesson_bests("es").expect("leer"))
+        sections::ladder(
+            &profile
+                .lesson_bests(sections::LESSONS_LANGUAGE)
+                .expect("leer"),
+        )
     }
 
     #[test]
@@ -406,7 +414,12 @@ mod tests {
             play_lesson(&mut profile, Slot::FIRST, 200),
             Recorded::Logged(None)
         );
-        assert_eq!(profile.lesson_bests("es").expect("leer"), Vec::new());
+        assert_eq!(
+            profile
+                .lesson_bests(sections::LESSONS_LANGUAGE)
+                .expect("leer"),
+            Vec::new()
+        );
     }
 
     #[test]
@@ -473,6 +486,7 @@ mod tests {
             comment: Comment::FluidCongratulations,
             advance: false,
             lesson: None,
+            source: None,
         }
     }
 

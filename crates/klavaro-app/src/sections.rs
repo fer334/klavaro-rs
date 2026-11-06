@@ -15,13 +15,9 @@ use crate::tutor::Direction;
 pub(crate) const SECTION_COLUMNS: u16 = 4;
 /// Lecciones por fila en la grilla de una sección.
 pub(crate) const LESSON_COLUMNS: u16 = 6;
-/// Identificador de los textos provisionales en el registro de intentos.
-pub(crate) const PROVISIONAL_TEXT_ID: &str = "provisional";
 /// Idioma de los ejercicios: por ahora la Progresión es sólo en inglés, sea cual sea el idioma
 /// de los textos elegido para los demás módulos.
 pub(crate) const LESSONS_LANGUAGE: &str = "C";
-/// Tolerancia en el largo de un texto, respecto del que dura 60 s a la meta de la lección.
-pub(crate) const LENGTH_TOLERANCE: f64 = 0.15;
 
 /// Selección de sección.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,56 +111,13 @@ pub(crate) fn clock(d: Duration) -> String {
     format!("{:02}:{:02}", secs / 60, secs % 60)
 }
 
-/// Texto provisional de una lección: oraciones de los párrafos del idioma, siempre las mismas
-/// para cada lección, con el largo que le corresponde. Se reemplaza por el catálogo definitivo.
-///
-/// Devuelve `None` si no hay párrafos.
-pub(crate) fn provisional_text(paragraphs: &[String], slot: Slot) -> Option<String> {
-    let sentences: Vec<&str> = paragraphs
-        .iter()
-        .flat_map(|p| p.split_inclusive(". "))
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .collect();
-    if sentences.is_empty() {
-        return None;
+/// Nombre de la wiki de origen de un texto.
+pub(crate) fn source_name(source: &str) -> &'static str {
+    if source == "simple" {
+        "Simple English Wikipedia"
+    } else {
+        "Wikipedia"
     }
-    let target = slot.target_chars();
-    let min = target * (1.0 - LENGTH_TOLERANCE);
-    let max = target * (1.0 + LENGTH_TOLERANCE);
-    let start = usize::from(slot.section()) * 31 + usize::from(slot.lesson()) * 17;
-    let mut text = String::new();
-    for sentence in sentences.iter().cycle().skip(start % sentences.len()) {
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        text.push_str(sentence);
-        if length(&text) >= min {
-            break;
-        }
-    }
-    if length(&text) > max {
-        text = shortened(&text, max);
-    }
-    Some(text)
-}
-
-fn length(text: &str) -> f64 {
-    f64::from(u32::try_from(text.chars().count()).unwrap_or(u32::MAX))
-}
-
-/// Corta en el último espacio que entra en `max` caracteres y termina con punto.
-fn shortened(text: &str, max: f64) -> String {
-    // `max` es positivo y chico: el redondeo hacia abajo es justo lo que se busca.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let room = max as usize;
-    let cut: String = text.chars().take(room.saturating_sub(1)).collect();
-    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
-    let mut out = cut
-        .trim_end_matches(|c: char| !c.is_alphanumeric())
-        .to_owned();
-    out.push('.');
-    out
 }
 
 #[cfg(test)]
@@ -175,37 +128,28 @@ mod tests {
     use crate::assets;
 
     #[test]
-    fn provisional_texts_fit_every_lesson() {
-        for language in ["es", "C"] {
-            let paragraphs = assets::paragraphs(language).expect("párrafos");
-            for section in sections() {
-                for lesson in 1..=LESSONS_PER_SECTION {
-                    let slot = Slot::new(section, lesson).expect("lección");
-                    let text = provisional_text(&paragraphs, slot).expect("texto");
-                    let (chars, target) = (length(&text), slot.target_chars());
-                    assert!(
-                        chars >= target * (1.0 - LENGTH_TOLERANCE)
-                            && chars <= target * (1.0 + LENGTH_TOLERANCE),
-                        "{language} {slot:?}: {chars} caracteres, se pedían {target}"
-                    );
-                    assert!(!text.contains('\n'), "{slot:?}");
-                    assert_eq!(text, provisional_text(&paragraphs, slot).expect("texto"));
-                }
+    fn every_lesson_has_a_text_in_the_embedded_catalog() {
+        let catalog = assets::lessons_catalog(LESSONS_LANGUAGE).expect("catálogo");
+        assert_eq!(catalog.len(), 510);
+        for section in sections() {
+            for lesson in 1..=LESSONS_PER_SECTION {
+                let slot = Slot::new(section, lesson).expect("lección");
+                assert!(catalog.iter().any(|entry| entry.slot == slot), "{slot:?}");
             }
         }
+        let first = assets::lesson(LESSONS_LANGUAGE, Slot::FIRST).expect("texto");
+        assert_eq!(first.slot, Slot::FIRST);
     }
 
     #[test]
-    fn provisional_text_works_in_every_language() {
-        let slot = Slot::new(20, 1).expect("lección");
-        for language in assets::languages() {
-            let paragraphs = assets::paragraphs(&language).expect("párrafos");
-            assert!(
-                provisional_text(&paragraphs, slot).is_some_and(|t| !t.is_empty()),
-                "{language}"
-            );
-        }
-        assert_eq!(provisional_text(&[], slot), None);
+    fn a_language_without_a_catalog_is_an_error() {
+        assert!(assets::lesson("es", Slot::FIRST).is_err());
+    }
+
+    #[test]
+    fn names_the_source_wiki() {
+        assert_eq!(source_name("simple"), "Simple English Wikipedia");
+        assert_eq!(source_name("en"), "Wikipedia");
     }
 
     #[test]

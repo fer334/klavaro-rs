@@ -16,7 +16,9 @@ use klavaro_core::metrics::Stats;
 use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
+use klavaro_data::catalog::CatalogEntry;
 
+use crate::assets;
 use crate::exercise::{self, ExerciseSpec};
 use crate::speech::{self, Say};
 
@@ -130,6 +132,8 @@ pub(crate) struct Outcome {
     pub(crate) advance: bool,
     /// En la Progresión: estrellas, meta y tiempo de la lección.
     pub(crate) lesson: Option<LessonResult>,
+    /// En la Progresión: de dónde salió el texto.
+    pub(crate) source: Option<CatalogEntry>,
 }
 
 /// Efecto de una acción que la interfaz tiene que aplicar.
@@ -162,6 +166,8 @@ pub(crate) struct Tutor {
     special: bool,
     /// Cuántos ejercicios se generaron (para saber si cambió el texto).
     generation: u32,
+    /// En la Progresión: de dónde salió el texto.
+    source: Option<CatalogEntry>,
 }
 
 impl Tutor {
@@ -176,6 +182,10 @@ impl Tutor {
         tracker.sort();
         let text = exercise::generate(&spec, &layout, seed, None)?;
         let session = Session::new(spec.module, &text);
+        let source = spec
+            .slot
+            .map(|slot| assets::lesson(&spec.language, slot))
+            .transpose()?;
         Ok(Self {
             spec,
             layout,
@@ -186,6 +196,7 @@ impl Tutor {
             tracker,
             special: false,
             generation: 0,
+            source,
         })
     }
 
@@ -260,6 +271,20 @@ impl Tutor {
     /// Avance: caracteres tecleados y total.
     pub(crate) fn progress(&self) -> (usize, usize) {
         (self.session.cursor(), self.session.target().len())
+    }
+
+    /// Caracteres del texto que este teclado no tiene, sin repetir. No impide hacer el ejercicio.
+    pub(crate) fn missing_keys(&self) -> Vec<char> {
+        let mut missing: Vec<char> = self
+            .session
+            .target()
+            .iter()
+            .copied()
+            .filter(|&c| !c.is_whitespace() && !self.layout.contains(c))
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        missing
     }
 
     /// Tiempo desde la primera tecla hasta la última.
@@ -382,6 +407,7 @@ impl Tutor {
             comment,
             advance,
             lesson,
+            source: self.source.clone(),
         });
     }
 
@@ -425,7 +451,6 @@ impl Tutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets;
 
     fn tutor(module: Module) -> Tutor {
         let layout = assets::keyboard("qwerty_es").expect("kbd");
@@ -458,7 +483,7 @@ mod tests {
             module: Module::Progression,
             lesson: 1,
             paragraphs: 1,
-            language: "es".to_owned(),
+            language: crate::sections::LESSONS_LANGUAGE.to_owned(),
             slot: klavaro_core::progression::Slot::new(section, lesson),
         };
         Tutor::new(spec, layout, Goals::default(), 42, KeyTracker::new()).expect("tutor")
@@ -517,6 +542,40 @@ mod tests {
         t.handle(Input::Restart, Duration::ZERO).expect("esc");
         assert!(t.outcome().is_none());
         assert_eq!(t.text(), text);
+    }
+
+    #[test]
+    fn a_lesson_keeps_the_source_of_its_text() {
+        let mut t = lesson_tutor(20, 1);
+        assert_eq!(t.missing_keys(), Vec::<char>::new());
+        type_lesson(&mut t, 500);
+        let source = t.outcome().and_then(|o| o.source.clone()).expect("fuente");
+        assert_eq!(source.text, t.text());
+        assert!(source.url().contains("oldid="));
+    }
+
+    #[test]
+    fn warns_about_keys_the_layout_does_not_have() {
+        let layout = assets::keyboard("qwerty_us").expect("kbd");
+        let foreign = assets::keyboards()
+            .into_iter()
+            .find(|k| assets::keyboard(k).is_ok_and(|l| !l.contains('a')))
+            .expect("un teclado sin alfabeto latino");
+        let spec = |slot| ExerciseSpec {
+            module: Module::Progression,
+            lesson: 1,
+            paragraphs: 1,
+            language: crate::sections::LESSONS_LANGUAGE.to_owned(),
+            slot,
+        };
+        let slot = klavaro_core::progression::Slot::new(20, 1);
+        let t =
+            Tutor::new(spec(slot), layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
+        assert_eq!(t.missing_keys(), Vec::<char>::new());
+        let layout = assets::keyboard(&foreign).expect("kbd");
+        let t =
+            Tutor::new(spec(slot), layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
+        assert!(!t.missing_keys().is_empty(), "{foreign}");
     }
 
     #[test]

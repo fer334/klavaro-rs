@@ -86,6 +86,11 @@ update-download = Descargar
 
 module-progression = Progresión
 sections-back = Volver
+sections-credits = Créditos
+sections-credits-intro = Los textos de estas lecciones vienen de Wikipedia y Simple English Wikipedia, con licencia { $license }. Se recortaron y adaptaron. Pulse una lección para abrir su artículo original.
+sections-license = Licencia ({ $license })
+sections-source = Texto: { $title } ({ $source }, { $license }), adaptado
+sections-missing-keys = Este teclado no tiene: { $keys }
 module-progression-tip = Suba de 20 a 100 PPM, lección a lección, ganando estrellas. Textos en inglés.
 sections-section = Sección de { $section } PPM
 sections-intro = Cada sección tiene 30 lecciones, y cada lección pide un poco más de velocidad que la anterior, hasta la meta de { $goal } PPM.
