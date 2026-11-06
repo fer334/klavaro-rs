@@ -488,6 +488,7 @@ mod tests {
             paragraphs: 1,
             language: "es".to_owned(),
             slot: None,
+            exam: false,
         };
         Tutor::new(spec, layout, Goals::default(), 42, KeyTracker::new()).expect("tutor")
     }
@@ -513,6 +514,7 @@ mod tests {
             paragraphs: 1,
             language: crate::sections::LESSONS_LANGUAGE.to_owned(),
             slot: klavaro_core::progression::Slot::new(section, lesson),
+            exam: false,
         };
         Tutor::new(spec, layout, Goals::default(), 42, KeyTracker::new()).expect("tutor")
     }
@@ -595,6 +597,7 @@ mod tests {
             paragraphs: 1,
             language: crate::sections::LESSONS_LANGUAGE.to_owned(),
             slot,
+            exam: false,
         };
         let slot = klavaro_core::progression::Slot::new(20, 1);
         let t =
@@ -771,6 +774,7 @@ mod tests {
             paragraphs: 1,
             language: "es".to_owned(),
             slot: None,
+            exam: false,
         };
         let mut t = Tutor::new(spec, layout, Goals::default(), 7, tracker).expect("tutor");
         assert_eq!(t.special_suggested(), Some(SpecialSession::TooManyErrors));

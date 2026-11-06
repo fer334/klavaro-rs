@@ -5,6 +5,9 @@
 //! lecciones. Los 5 PPM que separan dos secciones se reparten en partes iguales, así que cada
 //! lección pide 1/6 de PPM más que la anterior. Al terminar una lección se ganan de 1 a 5
 //! estrellas, y las estrellas abren las lecciones y las secciones siguientes.
+//!
+//! Quien ya escribe rápido puede rendir el examen de cualquier sección: es su lección 30, y con 5
+//! estrellas da por superadas esa sección y las anteriores, sin regalar sus estrellas.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -197,6 +200,8 @@ pub enum SectionStatus {
     Locked,
     /// Se puede jugar y todavía no se aprobó.
     Available,
+    /// Se saltó con un examen, sin aprobar todas sus lecciones.
+    Skipped,
     /// Aprobada.
     Passed,
 }
@@ -227,6 +232,8 @@ pub enum Milestone {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Ladder {
     best: BTreeMap<Slot, u8>,
+    /// Sección más alta superada con un examen (0 si no hay).
+    exam_section: u16,
 }
 
 impl Ladder {
@@ -234,7 +241,30 @@ impl Ladder {
     pub fn new(best: impl IntoIterator<Item = (Slot, u8)>) -> Self {
         Self {
             best: best.into_iter().collect(),
+            exam_section: 0,
         }
+    }
+
+    /// Agrega la sección más alta superada con un examen (0 si no hay).
+    #[must_use]
+    pub fn with_exam(mut self, section: u16) -> Self {
+        self.exam_section = section;
+        self
+    }
+
+    /// Si una sección quedó atrás: se aprobó o se superó con un examen.
+    pub fn section_cleared(&self, section: u16) -> bool {
+        section <= self.exam_section || self.section_passed(section)
+    }
+
+    /// Si esta sección admite examen: todavía no quedó atrás.
+    pub fn exam_available(&self, section: u16) -> bool {
+        is_section(section) && !self.section_cleared(section)
+    }
+
+    /// Lección que se juega en el examen de una sección: la última, que pide su meta.
+    pub fn exam_slot(section: u16) -> Option<Slot> {
+        Slot::new(section, LESSONS_PER_SECTION)
     }
 
     /// Mejores estrellas de una lección (0 si no se jugó).
@@ -267,14 +297,14 @@ impl Ladder {
     /// La meta más alta entre las secciones aprobadas.
     pub fn highest_passed(&self) -> Option<u16> {
         sections()
-            .filter(|&section| self.section_passed(section))
+            .filter(|&section| self.section_cleared(section))
             .last()
     }
 
     /// Qué logro alcanzó una lección, comparando el estado de antes con este.
     pub fn milestone(&self, before: &Self, slot: Slot) -> Option<Milestone> {
         let section = slot.section;
-        if before.section_passed(section) || !self.section_passed(section) {
+        if before.section_cleared(section) || !self.section_cleared(section) {
             None
         } else if section == LAST_SECTION {
             Some(Milestone::Completed)
@@ -293,7 +323,7 @@ impl Ladder {
     /// Si una sección se puede jugar.
     pub fn section_unlocked(&self, section: u16) -> bool {
         is_section(section)
-            && (section == FIRST_SECTION || self.section_passed(section - SECTION_STEP))
+            && (section == FIRST_SECTION || self.section_cleared(section - SECTION_STEP))
     }
 
     /// Estado de una sección.
@@ -302,6 +332,8 @@ impl Ladder {
             SectionStatus::Locked
         } else if self.section_passed(section) {
             SectionStatus::Passed
+        } else if self.section_cleared(section) {
+            SectionStatus::Skipped
         } else {
             SectionStatus::Available
         }
@@ -312,14 +344,16 @@ impl Ladder {
         if !self.section_unlocked(slot.section) {
             return false;
         }
+        // Las lecciones de una sección que quedó atrás se pueden jugar en cualquier orden.
         slot.lesson == 1
+            || self.section_cleared(slot.section)
             || Slot::new(slot.section, slot.lesson - 1).is_some_and(|p| self.stars(p) >= PASS_STARS)
     }
 
     /// La sección en la que toca jugar: la primera sin aprobar, o la última si están todas.
     pub fn current_section(&self) -> u16 {
         sections()
-            .find(|&s| !self.section_passed(s))
+            .find(|&s| !self.section_cleared(s))
             .unwrap_or(LAST_SECTION)
     }
 
@@ -340,7 +374,7 @@ impl Ladder {
     /// Qué sigue después de jugar una lección.
     pub fn next_step(&self, slot: Slot) -> NextStep {
         let Some(next) = slot.next() else {
-            return if self.section_passed(slot.section) {
+            return if self.section_cleared(slot.section) {
                 NextStep::Completed
             } else if self.stars(slot) < PASS_STARS {
                 NextStep::NeedsPassStars
@@ -583,6 +617,52 @@ mod tests {
         let fives = Ladder::new(all_of(20, 5));
         assert_eq!(fives.current_lesson(20), None);
         assert_eq!(fives.current_section(), 25);
+    }
+
+    #[test]
+    fn an_exam_clears_the_section_and_the_previous_ones() {
+        let before = Ladder::default();
+        assert!(before.exam_available(60));
+        assert!(!before.exam_available(61));
+        assert_eq!(Ladder::exam_slot(60), Slot::new(60, 30));
+
+        let after = Ladder::new([(slot(60, 30), 5)]).with_exam(60);
+        for section in [20, 40, 60] {
+            assert!(after.section_cleared(section), "{section}");
+            assert!(!after.exam_available(section), "{section}");
+        }
+        assert_eq!(after.status(20), SectionStatus::Skipped);
+        assert_eq!(after.status(60), SectionStatus::Skipped);
+        assert_eq!(after.status(65), SectionStatus::Available);
+        assert_eq!(after.status(70), SectionStatus::Locked);
+        assert_eq!(after.current_section(), 65);
+        assert_eq!(after.highest_passed(), Some(60));
+        assert_eq!(after.next_step(slot(60, 30)), NextStep::Open(slot(65, 1)));
+        assert_eq!(
+            after.milestone(&before, slot(60, 30)),
+            Some(Milestone::SectionPassed(60))
+        );
+    }
+
+    #[test]
+    fn an_exam_gives_no_stars_and_keeps_old_lessons_open() {
+        let after = Ladder::default().with_exam(60);
+        assert_eq!(after.total_stars(), 0);
+        assert_eq!(after.total_lessons_passed(), 0);
+        assert_eq!(after.section_stars(20), 0);
+        assert!(after.lesson_unlocked(slot(40, 17)), "abierta, sin orden");
+        assert!(after.lesson_unlocked(slot(65, 1)));
+        assert!(!after.lesson_unlocked(slot(65, 2)), "la nueva va en orden");
+    }
+
+    #[test]
+    fn the_last_exam_completes_the_progression() {
+        let after = Ladder::new([(slot(100, 30), 5)]).with_exam(100);
+        assert_eq!(after.next_step(slot(100, 30)), NextStep::Completed);
+        assert_eq!(
+            after.milestone(&Ladder::default(), slot(100, 30)),
+            Some(Milestone::Completed)
+        );
     }
 
     #[test]

@@ -206,6 +206,8 @@ enum Message {
     OpenSection(u16),
     /// Empieza una lección.
     StartLesson(Slot),
+    /// Empieza el examen de una sección.
+    StartExam(u16),
     /// Abre el origen y la licencia de los textos.
     OpenCredits,
     /// Abre una página del navegador (fuente o licencia de un texto).
@@ -331,7 +333,14 @@ impl App {
                 self.error = Some(e.to_string());
                 Vec::new()
             });
-        self.ladder = crate::sections::ladder(&bests);
+        let exam = self
+            .profile
+            .exam_section(LESSONS_LANGUAGE)
+            .unwrap_or_else(|e| {
+                self.error = Some(e.to_string());
+                0
+            });
+        self.ladder = crate::sections::ladder(&bests, exam);
         self.bests = bests.into_iter().map(|b| (b.slot, b)).collect();
     }
 
@@ -341,12 +350,27 @@ impl App {
         self.screen = Screen::Sections(SectionsView::new(&self.ladder));
     }
 
-    /// Abre las lecciones de una sección, si está abierta.
+    /// Abre las lecciones de una sección. Una bloqueada también se puede ver: desde ahí se rinde
+    /// su examen.
     fn open_section(&mut self, section: u16) {
-        if self.ladder.section_unlocked(section) {
-            self.leave_tutor();
-            self.screen = Screen::Section(SectionView::new(section, &self.ladder));
+        self.leave_tutor();
+        self.screen = Screen::Section(SectionView::new(section, &self.ladder));
+    }
+
+    /// Empieza el examen de una sección: su última lección, sin pedir las anteriores.
+    fn start_exam(&mut self, section: u16) -> std::io::Result<()> {
+        if !self.ladder.exam_available(section) {
+            return Ok(());
         }
+        let spec = ExerciseSpec {
+            module: Module::Progression,
+            lesson: self.lesson,
+            paragraphs: 0,
+            language: LESSONS_LANGUAGE.to_owned(),
+            slot: Ladder::exam_slot(section),
+            exam: true,
+        };
+        self.start_spec(spec)
     }
 
     /// Empieza una lección, si está abierta.
@@ -360,6 +384,7 @@ impl App {
             paragraphs: 0,
             language: LESSONS_LANGUAGE.to_owned(),
             slot: Some(slot),
+            exam: false,
         };
         self.start_spec(spec)
     }
@@ -440,6 +465,11 @@ impl App {
                 Screen::Section(v) => v.step(direction),
                 _ => {}
             },
+            Input::Char('e' | 'E') => {
+                if let Screen::Section(v) = self.screen {
+                    return self.start_exam(v.section);
+                }
+            }
             Input::Enter => match self.screen {
                 Screen::Milestone(milestone) => return self.milestone_continue(milestone),
                 Screen::Sections(v) => self.open_section(v.cursor),
@@ -557,6 +587,7 @@ impl App {
             m @ (Message::OpenSections
             | Message::OpenSection(_)
             | Message::StartLesson(_)
+            | Message::StartExam(_)
             | Message::OpenCredits
             | Message::OpenLink(_)
             | Message::MilestoneContinue
@@ -668,6 +699,7 @@ impl App {
             Message::OpenSections => self.open_sections(),
             Message::OpenSection(section) => self.open_section(*section),
             Message::StartLesson(slot) => return self.start_lesson(*slot),
+            Message::StartExam(section) => return self.start_exam(*section),
             Message::OpenCredits => {
                 self.screen = Screen::Credits(assets::lessons_catalog(LESSONS_LANGUAGE)?);
             }
@@ -915,6 +947,7 @@ impl App {
             paragraphs: usize::from(config.fluid_paragraphs),
             language: self.language.clone(),
             slot: None,
+            exam: false,
         };
         self.start_spec(spec)?;
         self.profile.config.last_module = Some(module);
@@ -1284,10 +1317,7 @@ impl App {
     fn view_tutor<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
         let tr = &self.tr;
         let spec = tutor.spec();
-        let title = spec.slot.map_or_else(
-            || module_name(tr, spec.module),
-            |slot| self.lesson_title(slot),
-        );
+        let title = self.tutor_title(spec);
         let heading = column![
             text(title).size(20).font(style::BOLD),
             text(format!("{} · {}", spec.language, self.keyboard))
@@ -1384,6 +1414,19 @@ impl App {
             page = page.push(self.keyboard_view(tutor));
         }
         page.push(self.tutor_footer(tutor)).into()
+    }
+
+    /// Título del ejercicio: el módulo o, en la Progresión, la lección o el examen.
+    fn tutor_title(&self, spec: &ExerciseSpec) -> String {
+        let tr = &self.tr;
+        match spec.slot {
+            None => module_name(tr, spec.module),
+            Some(slot) if spec.exam => tr.tr_args(
+                "sections-exam-title",
+                &[("section", &slot.section().to_string())],
+            ),
+            Some(slot) => self.lesson_title(slot),
+        }
     }
 
     /// Teclado virtual con la tecla y el dedo siguientes.

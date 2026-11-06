@@ -11,8 +11,9 @@ mecanografía libre e independiente del idioma y de la distribución de teclado.
 > (nombre del Top 10, párrafos de Fluidez, inicio automático, pitido y metas) se editan en
 > pantalla. Modo dictado con espeak (o `say` en macOS) y pitido al equivocarse. Hay paquetes
 > para macOS, Linux y Windows (ver «Instalación»). En Básico y Adaptabilidad muestra el teclado
-> virtual con el dedo de cada tecla. También hay una práctica alternativa en la
-> terminal:
+> virtual con el dedo de cada tecla. La sección Progresión (tecla N) sube de 20 a 100 PPM en 17
+> secciones de 30 lecciones, con estrellas y textos en inglés. También hay una práctica alternativa
+> en la terminal:
 >
 > ```sh
 > cargo run                                   # abre la ventana
@@ -32,8 +33,8 @@ teclado, textos y traducciones), por lo que se distribuye con la misma licencia.
 
 | Crate | Contenido |
 | --- | --- |
-| `klavaro-core` | Dominio puro: sesión, métricas, metas, generadores, rastreo por tecla, ranking |
-| `klavaro-data` | Formatos del original: `.kbd`, `basic_lessons.txt`, `.words`, `.paragraphs`, historial e INI |
+| `klavaro-core` | Dominio puro: sesión, métricas, metas, generadores, rastreo por tecla, ranking, Progresión |
+| `klavaro-data` | Formatos del original: `.kbd`, `basic_lessons.txt`, `.words`, `.paragraphs`, historial e INI, y el catálogo de la Progresión |
 | `klavaro-store` | `config.toml`, historial y Top 10 en SQLite, importación del Klavaro original |
 | `klavaro-i18n` | Catálogo de idiomas, detección y textos traducidos con Fluent |
 | `klavaro-app` | Binario `klavaro-rs` (interfaz iced en la fase 2) |
@@ -102,8 +103,10 @@ apt source klavaro            # o descomprimir klavaro-3.14.tar.bz2 de SourceFor
 
 GPL-3.0-or-later. Ver [LICENSE](LICENSE).
 
-Los textos de la Progresión (`assets/C.progression`) vienen de
+Los textos de la Progresión (`assets/C.progression`) son obra de los colaboradores de
 [Wikipedia](https://en.wikipedia.org) y [Simple English Wikipedia](https://simple.wikipedia.org), con
-licencia [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Se recortaron y adaptaron.
-Cada línea del archivo indica el artículo y la revisión de origen, y la pantalla Créditos de la
-Progresión los enlaza.
+licencia [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). Se recortaron y adaptaron, y
+esas adaptaciones se distribuyen con la misma licencia. Cada línea del archivo indica el artículo y
+la revisión de origen, y la pantalla Créditos de la Progresión los enlaza.
+
+Las herramientas que arman ese catálogo están en [tools/progression](tools/progression/README.md).

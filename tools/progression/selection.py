@@ -33,8 +33,9 @@ from textrules import LENGTH_TOLERANCE, LESSONS, SECTION_STEP, sections, split_s
 CATALOG = HERE.parent.parent / "assets" / "C.progression"
 REVIEW = HERE / "review.json"
 HEADER = """\
-# Textos de la Progresión, tomados de Wikipedia (https://www.wikipedia.org) y Simple English Wikipedia.
-# Licencia: Creative Commons Attribution-ShareAlike 4.0. Recortados y normalizados.
+# Textos de la Progresión, de los colaboradores de Wikipedia y Simple English Wikipedia.
+# Licencia: Creative Commons Attribution-ShareAlike 4.0
+# (https://creativecommons.org/licenses/by-sa/4.0/). Recortados y normalizados.
 # Enlace a cada original: https://<fuente>.wikipedia.org/w/index.php?oldid=<revisión>
 # sección\tlección\ttext_id\ttema\tD\tfuente\ttítulo\trevisión\ttexto
 """

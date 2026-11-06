@@ -28,6 +28,8 @@ pub(crate) struct ExerciseSpec {
     pub(crate) language: String,
     /// Lección de la Progresión.
     pub(crate) slot: Option<Slot>,
+    /// Si la lección se juega como examen de su sección.
+    pub(crate) exam: bool,
 }
 
 /// Genera el texto de un ejercicio con los datos de `assets/`. `weak_keys` (ordenado, ver
@@ -137,7 +139,8 @@ pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
             gained,
             next,
             milestone,
-        } => lesson_note(tr, record, gained, next, milestone),
+            exam,
+        } => lesson_note(tr, record, gained, next, milestone, exam),
         Recorded::TooShort { chars } => Some(tr.tr_args(
             "ps-not-logged",
             &[
@@ -155,6 +158,7 @@ fn lesson_note(
     gained: u8,
     next: NextStep,
     milestone: Option<Milestone>,
+    exam: bool,
 ) -> Option<String> {
     let mut notes = Vec::new();
     if gained > 0 {
@@ -168,6 +172,7 @@ fn lesson_note(
             notes.push(tr.tr_args("sections-passed", &[("section", &section.to_string())]));
         }
         Some(Milestone::Completed) => notes.push(tr.tr("sections-completed")),
+        None if exam => notes.push(tr.tr("sections-exam-failed")),
         None => match next {
             NextStep::NeedsPassStars => notes.push(tr.tr("sections-need-pass")),
             NextStep::NeedsSection => notes.push(tr.tr("sections-need-goal")),
@@ -210,6 +215,7 @@ mod tests {
                 paragraphs: 3,
                 language: "es".to_owned(),
                 slot: None,
+                exam: false,
             };
             let text = generate(&spec, &layout, 3, None).expect("texto");
             assert!(!text.trim().is_empty(), "{module:?}");
@@ -225,6 +231,7 @@ mod tests {
             paragraphs: 3,
             language: "C".to_owned(),
             slot: Slot::new(75, 3),
+            exam: false,
         };
         let first = generate(&spec, &layout, 1, None).expect("texto");
         assert_eq!(first, generate(&spec, &layout, 99, None).expect("texto"));
@@ -279,24 +286,28 @@ mod tests {
                     gained: 2,
                     next: NextStep::NeedsPassStars,
                     milestone: None,
+                    exam: false,
                 },
                 Recorded::Lesson {
                     record: false,
                     gained: 0,
                     next: NextStep::NeedsSection,
                     milestone: None,
+                    exam: true,
                 },
                 Recorded::Lesson {
                     record: false,
                     gained: 0,
                     next: NextStep::Completed,
                     milestone: Some(Milestone::Completed),
+                    exam: false,
                 },
                 Recorded::Lesson {
                     record: false,
                     gained: 1,
                     next: NextStep::Open(Slot::new(25, 1).expect("lección")),
                     milestone: Some(Milestone::SectionPassed(20)),
+                    exam: false,
                 },
             ];
             for r in notes {

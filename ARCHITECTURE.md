@@ -30,6 +30,34 @@ klavaro-app ──► klavaro-i18n
 5. `profile.rs` (app) guarda la sesión en el historial con `klavaro-store`. Como el original,
    una sesión de Fluidez con menos de 500 caracteres no se registra.
 
+## Progresión
+
+Es una sección propia, con otra lógica que los cuatro módulos del original. Por eso
+`Module::Progression` no está en `Module::ALL`, que alimenta el menú, las metas de Preferencias y
+la importación.
+
+- `progression.rs` (core) tiene las reglas: 17 secciones de 20 a 100 PPM, cada una con 30 lecciones.
+  La sección lleva el nombre de la meta a la que llega, y cada lección pide 1/6 de PPM más que la
+  anterior.
+- **Tiempo y velocidad:** el tiempo máximo es `12 × caracteres / meta`. Una lección sólo termina con
+  el texto bien escrito, así que la velocidad sale del largo y del tiempo, y 5 estrellas equivale
+  exactamente a terminar dentro del tiempo. No se usan las PPM de `Stats`, que suben al errar varias
+  veces la misma letra.
+- **Estrellas:** 5 con `velocidad ≥ meta`, y 4, 3 y 2 con el 90, 80 y 70 %; terminar siempre da 1.
+  Con menos de 95 % de precisión el máximo es 4, y con menos de 90 % es 2.
+- **Desbloqueo:** 3 estrellas abren la lección siguiente. Aprobar una sección pide las 30 lecciones
+  con 3 estrellas o más y la última con 5.
+- **Examen:** cualquier sección que no quedó atrás, también una bloqueada, se puede superar jugando
+  su lección 30 con 5 estrellas. Eso da por superadas esa sección y las anteriores, que se ven como
+  «Saltada», sin regalar sus estrellas, y sus lecciones quedan abiertas en cualquier orden. La sección
+  más alta se guarda en `meta` (`progression_exam_<idioma>`).
+- `sections.rs` (app, sin iced) tiene la selección y `gui/sections.rs` las vistas. Las lecciones usan
+  el `Tutor` con corrección, como Fluidez. El tiempo en pantalla se actualiza con cada tecla.
+- Por ahora los ejercicios son sólo en inglés (`LESSONS_LANGUAGE`), sea cual sea el idioma de los
+  textos de los otros módulos.
+- El puntaje es el de `metrics::score`. Las sesiones de Progresión entran al historial, pero no
+  pasan por el mínimo de caracteres ni entran al Top 10.
+
 ## Persistencia
 
 - `config.toml` se lee con tolerancia: claves faltantes toman el valor por defecto y los
@@ -38,6 +66,10 @@ klavaro-app ──► klavaro-i18n
 - `history.sqlite3` tiene las tablas `sessions` (equivale a `stat_*.txt`), `ranking`
   (Top 10 local por idioma), `scores` (`scores_fluid.txt`) y `meta`. El esquema se versiona
   con `PRAGMA user_version`.
+- El esquema 3 suma `progression_attempts`, con un registro por intento. Los mejores resultados
+  y el desbloqueo se calculan desde ahí, así un resultado peor nunca baja las estrellas. El
+  progreso se asocia a la lección y no al texto: reemplazar un texto no hace perder estrellas.
+  Reiniciar la Progresión borra sólo esta tabla.
 - Los instantes son segundos desde 1970 en UTC y se muestran en la hora local (`chrono`). Las
   fechas de los `.txt` del original son locales y se pasan a UTC al importar; las bases
   importadas antes de esa corrección se arreglan una vez (`utc_times_once`).
@@ -110,6 +142,9 @@ klavaro-app ──► klavaro-i18n
   barras, con el rastreo del teclado actual (`Chart::per_key`).
 - La pantalla Top 10 muestra el ranking local del idioma de los textos; los puntajes externos
   (descarga y publicación por la web) no se implementan.
+- En la Progresión, los gráficos se filtran por sección y lección (`75-03` en la columna `lesson`), con
+  la meta de la lección como línea de referencia. Las estrellas por sección son barras armadas sin
+  `Plot`, porque no salen del historial de sesiones.
 
 ## Fidelidad con Klavaro 3.14
 
@@ -121,6 +156,10 @@ desviación con denominador `n − 1`. Para los gráficos, el original muestra l
 sesiones (`DATA_POINTS`).
 
 ## Datos
+
+`assets/C.progression` tiene un texto en inglés por lección, con su fuente y revisión. Lo genera
+`tools/progression/` (ver su [README](tools/progression/README.md)) a partir de Wikipedia y Simple
+English Wikipedia, con licencia CC BY-SA 4.0, y lo lee `klavaro_data::catalog`.
 
 `assets/` contiene los datos del original (GPL-3.0-or-later): 77 distribuciones `.kbd`,
 listas `.words` y `.paragraphs` por idioma, `basic_lessons.txt` y `fingers_position.txt`.

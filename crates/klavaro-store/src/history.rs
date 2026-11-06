@@ -316,16 +316,43 @@ impl History {
         Ok(())
     }
 
-    /// Borra los intentos de la Progresión en un idioma. No toca las sesiones ni el Top 10.
+    /// Borra los intentos y exámenes de la Progresión en un idioma. No toca las sesiones ni el
+    /// Top 10.
     ///
     /// # Errors
     ///
     /// Si falla la escritura.
     pub fn reset_lessons(&self, language: &str) -> Result<usize> {
+        self.conn
+            .execute("DELETE FROM meta WHERE key = ?1", [exam_key(language)])?;
         Ok(self.conn.execute(
             "DELETE FROM progression_attempts WHERE language = ?1",
             [language],
         )?)
+    }
+
+    /// Sección más alta superada con un examen en un idioma (0 si no hay).
+    ///
+    /// # Errors
+    ///
+    /// Si falla la lectura.
+    pub fn exam_section(&self, language: &str) -> Result<u16> {
+        Ok(self
+            .meta(&exam_key(language))?
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(0))
+    }
+
+    /// Guarda un examen aprobado. Nunca baja la sección ya superada.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la lectura o la escritura.
+    pub fn pass_exam(&self, language: &str, section: u16) -> Result<()> {
+        if section > self.exam_section(language)? {
+            self.set_meta(&exam_key(language), &section.to_string())?;
+        }
+        Ok(())
     }
 
     /// Mejores valores de cada lección jugada en un idioma, en orden. Los valores salen de todos
@@ -560,6 +587,11 @@ impl History {
     }
 }
 
+/// Clave de `meta` con la sección superada por examen en un idioma.
+fn exam_key(language: &str) -> String {
+    format!("progression_exam_{language}")
+}
+
 fn insert_session(conn: &Connection, r: &SessionRecord) -> Result<()> {
     conn.execute(
         "INSERT INTO sessions (module, at, accuracy, wpm, fluidity, touches, errors,
@@ -712,6 +744,18 @@ mod tests {
         assert_eq!(h.lesson_bests("es").expect("leer").len(), 1);
         assert_eq!(h.count(Module::Progression).expect("contar"), 2);
         assert_eq!(h.ranking("C").expect("ranking").entries().len(), 1);
+    }
+
+    #[test]
+    fn exams_are_kept_per_language_and_never_go_down() {
+        let h = History::in_memory().expect("base");
+        assert_eq!(h.exam_section("C").expect("leer"), 0);
+        h.pass_exam("C", 60).expect("guardar");
+        h.pass_exam("C", 40).expect("guardar");
+        assert_eq!(h.exam_section("C").expect("leer"), 60);
+        assert_eq!(h.exam_section("es").expect("leer"), 0);
+        h.reset_lessons("C").expect("reiniciar");
+        assert_eq!(h.exam_section("C").expect("leer"), 0);
     }
 
     #[test]

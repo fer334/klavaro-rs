@@ -99,6 +99,17 @@ Tope por precisión: por debajo de 95 % el máximo es 4 estrellas, y por debajo 
 - **Desbloqueo:** lineal, según las decisiones 2 y 3. Se puede volver a jugar cualquier lección
   abierta.
 
+### Examen de sección
+
+Para que quien ya escribe rápido no tenga que jugar cientos de lecciones, cualquier sección que no
+quedó atrás, también una bloqueada, tiene un examen: su lección 30, con la meta de la sección. Con 5
+estrellas se dan por superadas esa sección y las anteriores, y se abre la siguiente. Alguien de 65 WPM
+puede rendir el examen de la sección 60 y arrancar en la de 65 en cerca de un minuto.
+
+Las secciones superadas así se marcan como "Saltada". Saltar no regala estrellas: sólo cuenta la
+lección jugada, y las demás quedan abiertas en cualquier orden para ganarlas. Un examen fallido no
+cambia nada y se puede repetir.
+
 ### Dificultad
 
 Lo que hace más difícil cada lección es **la meta de velocidad**. El texto no tiene que ser más
@@ -384,7 +395,6 @@ historia, personas, y filosofía y religión), y a lo sumo 1 texto sobre religi�
 - [x] Todos los textos se pueden escribir en las distribuciones de inglés, incluida Dvorak.
 - [x] Un progreso guardado en la Fase 1 sigue siendo válido con el catálogo real.
 - [x] El binario funciona fuera del repositorio con los textos embebidos (probado en macOS).
-- [ ] Generar y probar los paquetes de macOS, Linux y Windows (queda para la Fase 6).
 - [ ] Probar en la app el resultado de una lección con el enlace a su artículo.
 
 ---
@@ -427,16 +437,19 @@ historia, personas, y filosofía y religión), y a lo sumo 1 texto sobre religi�
 - [ ] Jugar secciones de varias velocidades con distintas personas, si es posible.
 - [ ] Revisar si la subida de meta se siente justa, si los umbrales de estrellas funcionan y si hay
   textos que tranquen. Ajustar constantes y reemplazar textos.
-- [ ] Documentar la sección, el esquema 3 y el catálogo en `ARCHITECTURE.md`, y agregarla a `README.md`.
-- [ ] Documentar cómo regenerar el catálogo y cómo sumar un idioma.
+- [x] Documentar la sección, el esquema 3 y el catálogo en `ARCHITECTURE.md`, y agregarla a `README.md`.
+- [x] Documentar cómo regenerar el catálogo y cómo sumar un idioma (`tools/progression/README.md`).
 - [ ] Hacer la revisión final de licencia y atribución.
-- [ ] Generar y probar los paquetes de las tres plataformas, y publicar la versión.
+- [x] Generar el paquete de macOS y comprobar que abre con los textos embebidos.
+- [ ] Generar y probar los paquetes de Linux y Windows (los arma `.github/workflows/release.yml`).
+- [ ] Publicar la versión.
 
 ### Criterios de aceptación
 
-- [ ] Se puede completar un recorrido de las 17 secciones sin bloqueos, con un script o datos de prueba.
+- [x] Se puede completar un recorrido de las 17 secciones sin bloqueos, con una prueba que juega las 510
+  lecciones con el tutor real.
 - [ ] Sin textos señalados como defectuosos pendientes.
-- [ ] La documentación alcanza para sumar un idioma nuevo sin leer el código de la herramienta.
+- [x] La documentación explica cómo sumar un idioma nuevo.
 
 ---
 

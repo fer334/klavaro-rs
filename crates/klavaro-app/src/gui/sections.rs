@@ -134,6 +134,7 @@ impl App {
                 let (label, color) = match status {
                     SectionStatus::Locked => (tr.tr("sections-locked"), colors.muted),
                     SectionStatus::Available => (tr.tr("sections-available"), colors.primary),
+                    SectionStatus::Skipped => (tr.tr("sections-skipped"), colors.muted),
                     SectionStatus::Passed => (tr.tr("sections-approved"), colors.success),
                 };
                 let stars = format!("★ {}/{SECTION_STARS}", self.ladder.section_stars(section));
@@ -157,14 +158,12 @@ impl App {
                     text(lessons).size(12).style(style::muted),
                 ]
                 .spacing(3);
-                let mut card = button(content)
+                button(content)
                     .width(Length::Fill)
                     .padding(10)
-                    .style(style::tile(section == v.cursor));
-                if status != SectionStatus::Locked {
-                    card = card.on_press(Message::OpenSection(section));
-                }
-                card.into()
+                    .style(style::tile(section == v.cursor))
+                    .on_press(Message::OpenSection(section))
+                    .into()
             })
             .collect();
         let total = format!("★ {}/{TOTAL_STARS}", self.ladder.total_stars());
@@ -244,7 +243,14 @@ impl App {
         let rule = if self.ladder.section_passed(section) {
             text(tr.tr("sections-approved")).color(colors.success)
         } else {
-            text(tr.tr("sections-rule")).style(style::muted)
+            text(tr.tr(if self.ladder.section_cleared(section) {
+                "sections-skipped-rule"
+            } else if self.ladder.section_unlocked(section) {
+                "sections-rule"
+            } else {
+                "sections-locked-rule"
+            }))
+            .style(style::muted)
         };
         column![
             bar_with_back(
@@ -256,6 +262,7 @@ impl App {
                 ],
             ),
             rule.size(14),
+            self.exam_row(section),
             scrollable(grid(cards, LESSON_COLUMNS))
                 .spacing(8)
                 .id(GRID_SCROLL)
@@ -441,6 +448,31 @@ impl App {
             scrollable(column(lines).spacing(2).width(Length::Fill)).height(Length::Fill),
         ]
         .spacing(16)
+        .into()
+    }
+
+    /// Botón del examen de una sección que todavía no quedó atrás.
+    fn exam_row<'a>(&self, section: u16) -> Element<'a, Message> {
+        if !self.ladder.exam_available(section) {
+            return Space::new().height(Length::Shrink).into();
+        }
+        row![
+            button(text(self.tr.tr("sections-exam")))
+                .style(style::primary)
+                .padding([8, 14])
+                .on_press(Message::StartExam(section)),
+            text(self.tr.tr_args(
+                "sections-exam-tip",
+                &[
+                    ("goal", &section.to_string()),
+                    ("accuracy", &format!("{FULL_STARS_ACCURACY:.0}")),
+                ],
+            ))
+            .size(13)
+            .style(style::muted),
+        ]
+        .spacing(12)
+        .align_y(Alignment::Center)
         .into()
     }
 

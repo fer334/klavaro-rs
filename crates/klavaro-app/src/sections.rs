@@ -106,9 +106,9 @@ pub(crate) fn stepped_section(section: u16, delta: i32) -> u16 {
     }
 }
 
-/// Estado de la Progresión a partir de los mejores resultados.
-pub(crate) fn ladder(bests: &[LessonBest]) -> Ladder {
-    Ladder::new(bests.iter().map(|b| (b.slot, b.stars)))
+/// Estado de la Progresión a partir de los mejores resultados y del examen aprobado.
+pub(crate) fn ladder(bests: &[LessonBest], exam_section: u16) -> Ladder {
+    Ladder::new(bests.iter().map(|b| (b.slot, b.stars))).with_exam(exam_section)
 }
 
 /// Estrellas llenas y vacías (`★★★☆☆`).
