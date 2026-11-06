@@ -8,6 +8,7 @@ use klavaro_core::Module;
 use klavaro_core::generators::{LanguageRules, adaptability, basic, fluidity, velocity};
 use klavaro_core::goals::Comment;
 use klavaro_core::keyboard::KeyboardLayout;
+use klavaro_core::progression::{Milestone, NextStep, Slot};
 use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
 use klavaro_core::tracker::KeyTracker;
@@ -25,6 +26,10 @@ pub(crate) struct ExerciseSpec {
     /// Párrafos de Fluidez (0 = texto completo).
     pub(crate) paragraphs: usize,
     pub(crate) language: String,
+    /// Lección de la Progresión.
+    pub(crate) slot: Option<Slot>,
+    /// Si la lección se juega como examen de su sección.
+    pub(crate) exam: bool,
 }
 
 /// Genera el texto de un ejercicio con los datos de `assets/`. `weak_keys` (ordenado, ver
@@ -55,6 +60,10 @@ pub(crate) fn generate(
             false,
             &mut rng,
         ),
+        Module::Progression => match spec.slot {
+            Some(slot) => Some(assets::lesson(&spec.language, slot)?.text),
+            None => None,
+        },
     };
     text.ok_or_else(|| {
         io::Error::new(
@@ -71,6 +80,7 @@ pub(crate) fn module_key(m: Module) -> &'static str {
         Module::Adaptability => "module-adaptability",
         Module::Velocity => "module-velocity",
         Module::Fluidity => "module-fluidity",
+        Module::Progression => "module-progression",
     }
 }
 
@@ -124,6 +134,13 @@ pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
         Recorded::Logged(Some(Rejection::Invalid)) => Some(tr.tr("ps-invalid")),
         Recorded::Logged(Some(Rejection::TextNotSimilar)) => Some(tr.tr("ps-not-similar")),
         Recorded::Ranked(_) => Some(tr.tr("ps-ranked")),
+        Recorded::Lesson {
+            record,
+            gained,
+            next,
+            milestone,
+            exam,
+        } => lesson_note(tr, record, gained, next, milestone, exam),
         Recorded::TooShort { chars } => Some(tr.tr_args(
             "ps-not-logged",
             &[
@@ -132,6 +149,37 @@ pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
             ],
         )),
     }
+}
+
+/// Nota al terminar una lección de la Progresión: lo que se ganó y qué falta.
+fn lesson_note(
+    tr: &Translator,
+    record: bool,
+    gained: u8,
+    next: NextStep,
+    milestone: Option<Milestone>,
+    exam: bool,
+) -> Option<String> {
+    let mut notes = Vec::new();
+    if gained > 0 {
+        notes.push(tr.tr_args("sections-gained", &[("count", &gained.to_string())]));
+    }
+    if record {
+        notes.push(tr.tr("sections-record"));
+    }
+    match milestone {
+        Some(Milestone::SectionPassed(section)) => {
+            notes.push(tr.tr_args("sections-passed", &[("section", &section.to_string())]));
+        }
+        Some(Milestone::Completed) => notes.push(tr.tr("sections-completed")),
+        None if exam => notes.push(tr.tr("sections-exam-failed")),
+        None => match next {
+            NextStep::NeedsPassStars => notes.push(tr.tr("sections-need-pass")),
+            NextStep::NeedsSection => notes.push(tr.tr("sections-need-goal")),
+            NextStep::Open(_) | NextStep::Completed => {}
+        },
+    }
+    (!notes.is_empty()).then(|| notes.join(" · "))
 }
 
 /// Mensaje al abrir la aplicación.
@@ -166,10 +214,29 @@ mod tests {
                 lesson: 1,
                 paragraphs: 3,
                 language: "es".to_owned(),
+                slot: None,
+                exam: false,
             };
             let text = generate(&spec, &layout, 3, None).expect("texto");
             assert!(!text.trim().is_empty(), "{module:?}");
         }
+    }
+
+    #[test]
+    fn progression_generates_the_same_text_for_a_lesson() {
+        let layout = assets::keyboard("qwerty_es").expect("kbd");
+        let spec = ExerciseSpec {
+            module: Module::Progression,
+            lesson: 1,
+            paragraphs: 3,
+            language: "C".to_owned(),
+            slot: Slot::new(75, 3),
+            exam: false,
+        };
+        let first = generate(&spec, &layout, 1, None).expect("texto");
+        assert_eq!(first, generate(&spec, &layout, 99, None).expect("texto"));
+        let without_lesson = ExerciseSpec { slot: None, ..spec };
+        assert!(generate(&without_lesson, &layout, 1, None).is_err());
     }
 
     /// Ningún texto queda sin traducir (mostraría la clave) en inglés ni en español.
@@ -206,7 +273,7 @@ mod tests {
                 assert!(!text.starts_with("comment-"), "{code}: {c:?}");
                 assert!(!text.contains("{$"), "{code}: {c:?} sin argumento");
             }
-            for m in Module::ALL {
+            for m in Module::ALL.into_iter().chain([Module::Progression]) {
                 assert!(tr.has(module_key(m)), "{code}: {m:?}");
             }
             let notes = [
@@ -214,11 +281,41 @@ mod tests {
                 Recorded::Logged(Some(Rejection::TextNotSimilar)),
                 Recorded::Ranked(1),
                 Recorded::TooShort { chars: 10 },
+                Recorded::Lesson {
+                    record: true,
+                    gained: 2,
+                    next: NextStep::NeedsPassStars,
+                    milestone: None,
+                    exam: false,
+                },
+                Recorded::Lesson {
+                    record: false,
+                    gained: 0,
+                    next: NextStep::NeedsSection,
+                    milestone: None,
+                    exam: true,
+                },
+                Recorded::Lesson {
+                    record: false,
+                    gained: 0,
+                    next: NextStep::Completed,
+                    milestone: Some(Milestone::Completed),
+                    exam: false,
+                },
+                Recorded::Lesson {
+                    record: false,
+                    gained: 1,
+                    next: NextStep::Open(Slot::new(25, 1).expect("lección")),
+                    milestone: Some(Milestone::SectionPassed(20)),
+                    exam: false,
+                },
             ];
             for r in notes {
                 let text = recorded_text(&tr, r).expect("nota");
                 assert!(
-                    !text.starts_with("ps-") && !text.contains("{$"),
+                    !text.starts_with("ps-")
+                        && !text.starts_with("sections-")
+                        && !text.contains("{$"),
                     "{code}: {r:?}"
                 );
             }

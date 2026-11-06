@@ -5,6 +5,7 @@
 //! [`Tutor::handle`]; después dibuja [`Tutor::segments`]. Así toda la lógica de la pantalla
 //! se prueba sin abrir una ventana.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::time::Duration;
 
@@ -13,11 +14,23 @@ use klavaro_core::generators::basic::FIXED_LESSONS;
 use klavaro_core::goals::{Comment, CommentContext, GoalCheck, Goals};
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::metrics::Stats;
+use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
+use klavaro_data::catalog::CatalogEntry;
 
+use crate::assets;
 use crate::exercise::{self, ExerciseSpec};
 use crate::speech::{self, Say};
+
+/// Flecha del teclado, para moverse por las grillas de la Progresión.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
 /// Tecla especial, ya separada del framework de interfaz.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +43,8 @@ pub(crate) enum NamedKey {
     Escape,
     /// Barra espaciadora (cuando el sistema no entrega texto).
     Space,
+    /// Una flecha.
+    Arrow(Direction),
 }
 
 /// Acción del usuario en la pantalla del tutor.
@@ -51,6 +66,8 @@ pub(crate) enum Input {
     LessonUp,
     /// Ctrl+`-`: lección anterior.
     LessonDown,
+    /// Una flecha: mueve la selección en las grillas. En un ejercicio no hace nada.
+    Move(Direction),
 }
 
 /// Traduce una tecla a una acción, con los atajos del original.
@@ -74,6 +91,7 @@ pub(crate) fn translate(named: Option<NamedKey>, text: Option<&str>, ctrl: bool)
         Some(NamedKey::Backspace) => return Some(Input::Backspace),
         Some(NamedKey::Escape) => return Some(Input::Restart),
         Some(NamedKey::Space) => return Some(Input::Char(' ')),
+        Some(NamedKey::Arrow(d)) => return Some(Input::Move(d)),
         None => {}
     }
     let mut chars = text?.chars().filter(|c| !c.is_control());
@@ -113,10 +131,15 @@ pub(crate) struct Outcome {
     pub(crate) comment: Comment,
     /// En Básico: se aprobó y Enter pasa a la lección siguiente.
     pub(crate) advance: bool,
+    /// En la Progresión: estrellas, meta y tiempo de la lección.
+    pub(crate) lesson: Option<LessonResult>,
+    /// En la Progresión: de dónde salió el texto.
+    pub(crate) source: Option<CatalogEntry>,
 }
 
 /// Efecto de una acción que la interfaz tiene que aplicar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[allow(clippy::struct_excessive_bools)] // Son efectos independientes entre sí.
 pub(crate) struct Effect {
     /// Hubo un error o una tecla no válida (el original pita).
     pub(crate) beep: bool,
@@ -124,6 +147,8 @@ pub(crate) struct Effect {
     pub(crate) toggle_theme: bool,
     /// El ejercicio acaba de terminar: hay que registrarlo.
     pub(crate) finished: bool,
+    /// Progresión: se pidió seguir después de terminar la lección.
+    pub(crate) next_lesson: bool,
 }
 
 /// Pantalla del tutor: ejercicio en curso y su resultado.
@@ -142,6 +167,12 @@ pub(crate) struct Tutor {
     special: bool,
     /// Cuántos ejercicios se generaron (para saber si cambió el texto).
     generation: u32,
+    /// En la Progresión: de dónde salió el texto.
+    source: Option<CatalogEntry>,
+    /// Errores de este ejercicio por tecla.
+    mistakes: BTreeMap<char, u32>,
+    /// Hay un error sin corregir: lo que se teclee hasta borrarlo no cuenta como otro error.
+    typo_open: bool,
 }
 
 impl Tutor {
@@ -156,6 +187,10 @@ impl Tutor {
         tracker.sort();
         let text = exercise::generate(&spec, &layout, seed, None)?;
         let session = Session::new(spec.module, &text);
+        let source = spec
+            .slot
+            .map(|slot| assets::lesson(&spec.language, slot))
+            .transpose()?;
         Ok(Self {
             spec,
             layout,
@@ -166,6 +201,9 @@ impl Tutor {
             tracker,
             special: false,
             generation: 0,
+            source,
+            mistakes: BTreeMap::new(),
+            typo_open: false,
         })
     }
 
@@ -242,6 +280,37 @@ impl Tutor {
         (self.session.cursor(), self.session.target().len())
     }
 
+    /// Caracteres del texto que este teclado no tiene, sin repetir. No impide hacer el ejercicio.
+    pub(crate) fn missing_keys(&self) -> Vec<char> {
+        let mut missing: Vec<char> = self
+            .session
+            .target()
+            .iter()
+            .copied()
+            .filter(|&c| !c.is_whitespace() && !self.layout.contains(c))
+            .collect();
+        missing.sort_unstable();
+        missing.dedup();
+        missing
+    }
+
+    /// Las teclas en las que más se erró en este ejercicio, de más a menos.
+    pub(crate) fn weak_keys(&self) -> Vec<char> {
+        let mut keys: Vec<(char, u32)> = self.mistakes.iter().map(|(&k, &n)| (k, n)).collect();
+        keys.sort_by_key(|&(key, count)| (std::cmp::Reverse(count), key));
+        keys.into_iter().take(5).map(|(key, _)| key).collect()
+    }
+
+    /// Si conviene una sesión especial de Adaptabilidad para las teclas débiles.
+    pub(crate) fn practice_suggested(&self) -> bool {
+        self.tracker.special_session().is_some()
+    }
+
+    /// Tiempo desde la primera tecla hasta la última.
+    pub(crate) fn elapsed(&self) -> Duration {
+        self.session.elapsed()
+    }
+
     /// Genera un ejercicio nuevo con la misma configuración.
     pub(crate) fn restart(&mut self) -> io::Result<()> {
         self.generation = self.generation.wrapping_add(1);
@@ -256,6 +325,8 @@ impl Tutor {
         let text = exercise::generate(&self.spec, &self.layout, self.seed, weak)?;
         self.session = Session::new(self.spec.module, &text);
         self.outcome = None;
+        self.mistakes.clear();
+        self.typo_open = false;
         Ok(())
     }
 
@@ -270,6 +341,7 @@ impl Tutor {
         let mut effect = Effect::default();
         match input {
             Input::ToggleTheme => effect.toggle_theme = true,
+            Input::Move(_) => {}
             Input::Restart => self.restart()?,
             Input::LessonUp if self.spec.module == Module::Basic => {
                 self.set_lesson(self.spec.lesson.saturating_add(1))?;
@@ -292,6 +364,10 @@ impl Tutor {
     fn after_end(&mut self, input: Input, effect: &mut Effect) -> io::Result<()> {
         let advance = self.outcome.as_ref().is_some_and(|o| o.advance);
         match input {
+            Input::Enter if self.spec.module == Module::Progression => {
+                effect.next_lesson = true;
+                Ok(())
+            }
             Input::Enter if advance => self.set_lesson(self.spec.lesson + 1),
             Input::Enter => self.restart(),
             Input::Backspace if self.spec.module == Module::Basic => {
@@ -308,15 +384,21 @@ impl Tutor {
         let track = self.spec.module != Module::Basic;
         match self.session.press(key, at) {
             Feedback::Correct { expected, interval } if track => {
+                self.typo_open = false;
                 self.tracker.correct(&self.layout, expected, interval);
             }
             Feedback::Retouched { expected } if track => {
+                self.typo_open = false;
                 self.tracker.correct(&self.layout, expected, None);
             }
             Feedback::Wrong { expected, .. } => {
                 if track {
                     self.tracker.wrong(&self.layout, expected);
                 }
+                if !self.typo_open {
+                    *self.mistakes.entry(expected).or_insert(0) += 1;
+                }
+                self.typo_open = true;
                 effect.beep = true;
             }
             Feedback::Ignored => effect.beep = true,
@@ -324,7 +406,8 @@ impl Tutor {
                 self.finish(stats);
                 effect.finished = true;
             }
-            Feedback::Correct { .. } | Feedback::Retouched { .. } | Feedback::Erased => {}
+            Feedback::Erased => self.typo_open = false,
+            Feedback::Correct { .. } | Feedback::Retouched { .. } => {}
         }
     }
 
@@ -342,11 +425,17 @@ impl Tutor {
             self.special = false;
         }
         let advance = passed_basic && self.spec.lesson < FIXED_LESSONS;
+        let lesson = self
+            .spec
+            .slot
+            .map(|slot| LessonResult::new(slot, self.session.target().len(), &stats));
         self.outcome = Some(Outcome {
             stats,
             check,
             comment,
             advance,
+            lesson,
+            source: self.source.clone(),
         });
     }
 
@@ -390,7 +479,6 @@ impl Tutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets;
 
     fn tutor(module: Module) -> Tutor {
         let layout = assets::keyboard("qwerty_es").expect("kbd");
@@ -399,6 +487,8 @@ mod tests {
             lesson: 1,
             paragraphs: 1,
             language: "es".to_owned(),
+            slot: None,
+            exam: false,
         };
         Tutor::new(spec, layout, Goals::default(), 42, KeyTracker::new()).expect("tutor")
     }
@@ -416,6 +506,138 @@ mod tests {
         }
     }
 
+    fn lesson_tutor(section: u16, lesson: u16) -> Tutor {
+        let layout = assets::keyboard("qwerty_es").expect("kbd");
+        let spec = ExerciseSpec {
+            module: Module::Progression,
+            lesson: 1,
+            paragraphs: 1,
+            language: crate::sections::LESSONS_LANGUAGE.to_owned(),
+            slot: klavaro_core::progression::Slot::new(section, lesson),
+            exam: false,
+        };
+        Tutor::new(spec, layout, Goals::default(), 42, KeyTracker::new()).expect("tutor")
+    }
+
+    /// Escribe todo el texto bien, con `ms` por tecla. Devuelve las veces que terminó.
+    fn type_lesson(t: &mut Tutor, ms: u64) -> usize {
+        let mut finished = 0;
+        for (i, c) in t.text().chars().enumerate() {
+            let at = Duration::from_millis(ms * i as u64);
+            finished += usize::from(t.handle(Input::Char(c), at).expect("tecla").finished);
+        }
+        finished
+    }
+
+    #[test]
+    fn a_lesson_on_time_earns_five_stars() {
+        let mut t = lesson_tutor(20, 30);
+        // A 20 PPM toca una tecla cada 600 ms.
+        assert_eq!(type_lesson(&mut t, 500), 1);
+        let result = t.outcome().and_then(|o| o.lesson).expect("resultado");
+        assert_eq!(result.stars, 5);
+        assert!((result.target_wpm - 20.0).abs() < 1e-9);
+        assert!(t.elapsed() > Duration::ZERO);
+    }
+
+    #[test]
+    fn a_slow_lesson_earns_fewer_stars() {
+        let mut t = lesson_tutor(20, 30);
+        type_lesson(&mut t, 800);
+        let result = t.outcome().and_then(|o| o.lesson).expect("resultado");
+        assert_eq!(result.stars, 2);
+    }
+
+    #[test]
+    fn a_lesson_needs_corrections_to_finish() {
+        let mut t = lesson_tutor(20, 1);
+        let first = t.text().chars().next().expect("texto");
+        t.handle(Input::Char('#'), Duration::ZERO).expect("tecla");
+        t.handle(Input::Backspace, Duration::from_millis(10))
+            .expect("corrige");
+        assert_eq!(t.progress().0, 0);
+        t.handle(Input::Char(first), Duration::from_millis(20))
+            .expect("tecla");
+        assert_eq!(t.progress().0, 1);
+    }
+
+    #[test]
+    fn after_a_lesson_enter_asks_to_continue_and_esc_repeats_the_text() {
+        let mut t = lesson_tutor(20, 1);
+        let text = t.text();
+        type_lesson(&mut t, 500);
+        let effect = t.handle(Input::Enter, Duration::ZERO).expect("enter");
+        assert!(effect.next_lesson);
+        assert!(t.outcome().is_some(), "sigue en el resultado");
+        t.handle(Input::Restart, Duration::ZERO).expect("esc");
+        assert!(t.outcome().is_none());
+        assert_eq!(t.text(), text);
+    }
+
+    #[test]
+    fn a_lesson_keeps_the_source_of_its_text() {
+        let mut t = lesson_tutor(20, 1);
+        assert_eq!(t.missing_keys(), Vec::<char>::new());
+        type_lesson(&mut t, 500);
+        let source = t.outcome().and_then(|o| o.source.clone()).expect("fuente");
+        assert_eq!(source.text, t.text());
+        assert!(source.url().contains("oldid="));
+    }
+
+    #[test]
+    fn warns_about_keys_the_layout_does_not_have() {
+        let layout = assets::keyboard("qwerty_us").expect("kbd");
+        let foreign = assets::keyboards()
+            .into_iter()
+            .find(|k| assets::keyboard(k).is_ok_and(|l| !l.contains('a')))
+            .expect("un teclado sin alfabeto latino");
+        let spec = |slot| ExerciseSpec {
+            module: Module::Progression,
+            lesson: 1,
+            paragraphs: 1,
+            language: crate::sections::LESSONS_LANGUAGE.to_owned(),
+            slot,
+            exam: false,
+        };
+        let slot = klavaro_core::progression::Slot::new(20, 1);
+        let t =
+            Tutor::new(spec(slot), layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
+        assert_eq!(t.missing_keys(), Vec::<char>::new());
+        let layout = assets::keyboard(&foreign).expect("kbd");
+        let t =
+            Tutor::new(spec(slot), layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
+        assert!(!t.missing_keys().is_empty(), "{foreign}");
+    }
+
+    #[test]
+    fn counts_one_mistake_per_typo_and_lists_the_weakest_keys() {
+        let mut t = lesson_tutor(20, 1);
+        let text: Vec<char> = t.text().chars().collect();
+        let at = Duration::ZERO;
+        t.handle(Input::Char('#'), at).expect("error");
+        t.handle(Input::Char('#'), at).expect("sigue mal");
+        assert_eq!(t.weak_keys(), vec![text[0]], "un solo error, no dos");
+        t.handle(Input::Backspace, at).expect("borra");
+        t.handle(Input::Backspace, at).expect("borra");
+        t.handle(Input::Char(text[0]), at).expect("corrige");
+        t.handle(Input::Char('#'), at).expect("otro error");
+        t.handle(Input::Backspace, at).expect("borra");
+        t.handle(Input::Char('#'), at).expect("repite el error");
+        assert_eq!(t.weak_keys()[0], text[1]);
+        t.restart().expect("reintento");
+        assert_eq!(t.weak_keys(), Vec::<char>::new());
+    }
+
+    #[test]
+    fn arrows_do_nothing_during_an_exercise() {
+        let mut t = lesson_tutor(20, 1);
+        let effect = t
+            .handle(Input::Move(Direction::Up), Duration::ZERO)
+            .expect("flecha");
+        assert_eq!(effect, Effect::default());
+        assert_eq!(t.progress().0, 0);
+    }
+
     #[test]
     fn translates_keys_and_shortcuts() {
         assert_eq!(translate(None, Some("ñ"), false), Some(Input::Char('ñ')));
@@ -430,6 +652,10 @@ mod tests {
         assert_eq!(
             translate(Some(NamedKey::Escape), None, false),
             Some(Input::Restart)
+        );
+        assert_eq!(
+            translate(Some(NamedKey::Arrow(Direction::Left)), None, false),
+            Some(Input::Move(Direction::Left))
         );
         assert_eq!(translate(None, Some("w"), true), Some(Input::DeleteWord));
         assert_eq!(translate(None, Some("R"), true), Some(Input::Restart));
@@ -547,6 +773,8 @@ mod tests {
             lesson: 1,
             paragraphs: 1,
             language: "es".to_owned(),
+            slot: None,
+            exam: false,
         };
         let mut t = Tutor::new(spec, layout, Goals::default(), 7, tracker).expect("tutor");
         assert_eq!(t.special_suggested(), Some(SpecialSession::TooManyErrors));

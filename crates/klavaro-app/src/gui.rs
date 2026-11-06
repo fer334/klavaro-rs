@@ -3,6 +3,9 @@
 //!
 //! Toda la lógica vive en [`crate::tutor`]; este módulo sólo traduce eventos y dibuja.
 
+mod sections;
+
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::advanced::input_method;
@@ -18,9 +21,12 @@ use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, T
 use klavaro_core::Module;
 use klavaro_core::generators::basic::MAX_LESSONS;
 use klavaro_core::keyboard::FingerMap;
+use klavaro_core::progression::{self, LESSONS_PER_SECTION, Ladder, Milestone, NextStep, Slot};
 use klavaro_core::ranking::RankingEntry;
 use klavaro_core::tracker::KeyTracker;
+use klavaro_data::catalog::CatalogEntry;
 use klavaro_i18n::Translator;
+use klavaro_store::LessonBest;
 use klavaro_store::date::format_date_time;
 
 use crate::assets;
@@ -29,12 +35,13 @@ use crate::exercise::{ExerciseSpec, comment_text, module_name, notice_text, reco
 use crate::hints::{finger_text, hint};
 use crate::keys::Keys;
 use crate::plot::Plot;
-use crate::profile::Profile;
+use crate::profile::{Profile, Recorded};
 use crate::progress::{Chart, ChartQuery, Metric};
+use crate::sections::{LESSONS_LANGUAGE, SectionView, SectionsView};
 use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
 use crate::style;
-use crate::tutor::{Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
+use crate::tutor::{Direction, Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 use crate::typing::Typing;
 use crate::update::{self, Release};
 
@@ -84,15 +91,34 @@ enum Screen {
     Progress(ProgressView),
     Top10(Vec<RankingEntry>),
     Settings(Box<SettingsForm>),
+    /// Progresión: selección de sección.
+    Sections(SectionsView),
+    /// Progresión: lecciones de una sección.
+    Section(SectionView),
+    /// Progresión: origen y licencia de los textos.
+    Credits(Vec<CatalogEntry>),
+    /// Progresión: se aprobó una sección.
+    Milestone(Milestone),
 }
 
 /// Estado de la pantalla de progreso.
 struct ProgressView {
     module: Module,
     metric: Metric,
-    /// Lección del curso básico (0 = todas).
+    /// Lección del curso básico o de la Progresión (0 = todas).
     lesson: u16,
+    /// Sección de la Progresión (0 = todas).
+    section: u16,
     chart: Chart,
+}
+
+/// Pasos para reiniciar la Progresión desde Preferencias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum ResetStep {
+    #[default]
+    Idle,
+    Confirming,
+    Done,
 }
 
 struct App {
@@ -125,6 +151,14 @@ struct App {
     tip_waiting: bool,
     /// Versión nueva publicada, si la hay.
     release: Option<Release>,
+    /// Progresión: estrellas de cada lección.
+    ladder: Ladder,
+    /// Progresión: mejores resultados de cada lección.
+    bests: BTreeMap<Slot, LessonBest>,
+    /// Logro de la última lección, para mostrarlo al seguir.
+    milestone: Option<Milestone>,
+    /// En qué paso está el botón de reiniciar la Progresión en Preferencias.
+    reset: ResetStep,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +200,32 @@ enum Message {
     ReleaseFound(Option<Release>),
     /// Abre la página de la versión nueva.
     OpenRelease,
+    /// Abre la selección de sección de la Progresión.
+    OpenSections,
+    /// Abre las lecciones de una sección.
+    OpenSection(u16),
+    /// Empieza una lección.
+    StartLesson(Slot),
+    /// Empieza el examen de una sección.
+    StartExam(u16),
+    /// Abre el origen y la licencia de los textos.
+    OpenCredits,
+    /// Abre una página del navegador (fuente o licencia de un texto).
+    OpenLink(String),
+    /// Sigue después de un logro.
+    MilestoneContinue,
+    /// Abre el gráfico de una lección.
+    LessonProgress(Slot),
+    /// Abre una sesión especial de Adaptabilidad con las teclas débiles.
+    PracticeWeakKeys,
+    /// Pide confirmar el reinicio de la Progresión.
+    ResetAsk,
+    /// Confirma el reinicio.
+    ResetConfirm,
+    /// Cancela el reinicio.
+    ResetCancel,
+    /// Cambia la sección del gráfico de la Progresión.
+    ProgressSection(i32),
 }
 
 impl App {
@@ -218,8 +278,13 @@ impl App {
             finger_tip: None,
             tip_waiting: false,
             release: None,
+            ladder: Ladder::default(),
+            bests: BTreeMap::new(),
+            milestone: None,
+            reset: ResetStep::Idle,
         };
         app.load_tracker();
+        app.load_lessons();
         if app.profile.config.autostart
             && let Some(m) = app.profile.config.last_module
             && let Err(e) = app.start(m)
@@ -259,6 +324,167 @@ impl App {
         });
     }
 
+    /// Lee los resultados de la Progresión.
+    fn load_lessons(&mut self) {
+        let bests = self
+            .profile
+            .lesson_bests(LESSONS_LANGUAGE)
+            .unwrap_or_else(|e| {
+                self.error = Some(e.to_string());
+                Vec::new()
+            });
+        let exam = self
+            .profile
+            .exam_section(LESSONS_LANGUAGE)
+            .unwrap_or_else(|e| {
+                self.error = Some(e.to_string());
+                0
+            });
+        self.ladder = crate::sections::ladder(&bests, exam);
+        self.bests = bests.into_iter().map(|b| (b.slot, b)).collect();
+    }
+
+    /// Abre la selección de sección.
+    fn open_sections(&mut self) {
+        self.leave_tutor();
+        self.screen = Screen::Sections(SectionsView::new(&self.ladder));
+    }
+
+    /// Abre las lecciones de una sección. Una bloqueada también se puede ver: desde ahí se rinde
+    /// su examen.
+    fn open_section(&mut self, section: u16) {
+        self.leave_tutor();
+        self.screen = Screen::Section(SectionView::new(section, &self.ladder));
+    }
+
+    /// Empieza el examen de una sección: su última lección, sin pedir las anteriores.
+    fn start_exam(&mut self, section: u16) -> std::io::Result<()> {
+        if !self.ladder.exam_available(section) {
+            return Ok(());
+        }
+        let spec = ExerciseSpec {
+            module: Module::Progression,
+            lesson: self.lesson,
+            paragraphs: 0,
+            language: LESSONS_LANGUAGE.to_owned(),
+            slot: Ladder::exam_slot(section),
+            exam: true,
+        };
+        self.start_spec(spec)
+    }
+
+    /// Empieza una lección, si está abierta.
+    fn start_lesson(&mut self, slot: Slot) -> std::io::Result<()> {
+        if !self.ladder.lesson_unlocked(slot) {
+            return Ok(());
+        }
+        let spec = ExerciseSpec {
+            module: Module::Progression,
+            lesson: self.lesson,
+            paragraphs: 0,
+            language: LESSONS_LANGUAGE.to_owned(),
+            slot: Some(slot),
+            exam: false,
+        };
+        self.start_spec(spec)
+    }
+
+    /// Enter al terminar una lección: pasa a la siguiente si está abierta y si no, la repite.
+    fn next_lesson(&mut self) -> std::io::Result<()> {
+        if let Some(milestone) = self.milestone.take() {
+            self.note = None;
+            self.leave_tutor();
+            self.screen = Screen::Milestone(milestone);
+            return Ok(());
+        }
+        let Screen::Tutor(t) = &mut self.screen else {
+            return Ok(());
+        };
+        let Some(slot) = t.spec().slot else {
+            return Ok(());
+        };
+        self.note = None;
+        match self.ladder.next_step(slot) {
+            NextStep::Open(next) => self.start_lesson(next),
+            NextStep::Completed => {
+                self.open_section(slot.section());
+                Ok(())
+            }
+            NextStep::NeedsPassStars | NextStep::NeedsSection => t.restart(),
+        }
+    }
+
+    /// Sigue después de un logro: a la sección que abrió o, al final, a la lista de secciones.
+    fn milestone_continue(&mut self, milestone: Milestone) -> std::io::Result<()> {
+        match milestone {
+            Milestone::SectionPassed(section) => {
+                if let Some(next) = Slot::new(section + progression::SECTION_STEP, 1) {
+                    return self.start_lesson(next);
+                }
+            }
+            Milestone::Completed => self.open_sections(),
+        }
+        Ok(())
+    }
+
+    /// Vuelve a la pantalla anterior.
+    fn back(&mut self) {
+        let section = match &self.screen {
+            Screen::Tutor(t) => t.spec().slot.map(Slot::section),
+            Screen::Progress(v) if v.module == Module::Progression && v.section != 0 => {
+                Some(v.section)
+            }
+            _ => None,
+        };
+        let in_section = matches!(
+            self.screen,
+            Screen::Section(_) | Screen::Credits(_) | Screen::Milestone(_)
+        );
+        self.milestone = None;
+        self.reset = ResetStep::Idle;
+        self.leave_tutor();
+        if let Some(section) = section {
+            self.open_section(section);
+        } else if in_section {
+            self.open_sections();
+        } else {
+            self.screen = Screen::Menu;
+        }
+    }
+
+    /// Teclas en las pantallas de la Progresión.
+    fn sections_key(&mut self, input: Input) -> std::io::Result<()> {
+        match input {
+            Input::Restart => self.back(),
+            Input::ToggleTheme => {
+                self.dark = !self.dark;
+                self.persist();
+            }
+            Input::Move(direction) => match &mut self.screen {
+                Screen::Sections(v) => v.step(direction),
+                Screen::Section(v) => v.step(direction),
+                _ => {}
+            },
+            Input::Char('e' | 'E') => {
+                if let Screen::Section(v) = self.screen {
+                    return self.start_exam(v.section);
+                }
+            }
+            Input::Enter => match self.screen {
+                Screen::Milestone(milestone) => return self.milestone_continue(milestone),
+                Screen::Sections(v) => self.open_section(v.cursor),
+                Screen::Section(v) => {
+                    if let Some(slot) = v.slot() {
+                        return self.start_lesson(slot);
+                    }
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
     /// Sale de la pantalla del tutor (si está en ella): recupera y guarda el rastreo.
     fn leave_tutor(&mut self) {
         if let Screen::Tutor(t) = std::mem::replace(&mut self.screen, Screen::Menu) {
@@ -288,11 +514,25 @@ impl App {
             .profile
             .record(t.spec(), &self.keyboard, outcome, &t.text(), &model)
         {
-            Ok(r) => self.note = recorded_text(&self.tr, r),
+            Ok(r) => {
+                self.note = recorded_text(&self.tr, r);
+                if let Recorded::Lesson {
+                    gained, milestone, ..
+                } = r
+                {
+                    self.milestone = milestone;
+                    if gained > 0 && self.profile.config.beep {
+                        self.audio.beep();
+                    }
+                }
+            }
             Err(e) => self.error = Some(e.to_string()),
         }
         if let Err(e) = self.profile.save_tracker(&self.keyboard, t.tracker()) {
             self.error = Some(e.to_string());
+        }
+        if t.spec().module == Module::Progression {
+            self.load_lessons();
         }
     }
 
@@ -301,6 +541,15 @@ impl App {
             Screen::Menu => "klavaro-rs".to_owned(),
             Screen::Tutor(t) => {
                 format!("klavaro-rs · {}", module_name(&self.tr, t.spec().module))
+            }
+            Screen::Sections(_)
+            | Screen::Section(_)
+            | Screen::Credits(_)
+            | Screen::Milestone(_) => {
+                format!(
+                    "klavaro-rs · {}",
+                    module_name(&self.tr, Module::Progression)
+                )
             }
             Screen::Progress(_) => format!("klavaro-rs · {}", self.tr.tr("menu-progress")),
             Screen::Top10(_) => format!("klavaro-rs · {}", self.tr.tr("menu-top10")),
@@ -324,42 +573,36 @@ impl App {
         }
         let result = match message {
             Message::Start(module) => self.start(module),
-            Message::InterfaceSelected(l) => {
-                self.tr = Translator::new(l.code);
-                self.profile.config.language = Some(l.code.to_owned());
-                self.persist();
-                Ok(())
-            }
-            Message::LanguageSelected(l) => {
-                self.language = l;
-                self.persist();
-                if matches!(self.screen, Screen::Top10(_)) {
-                    self.show_top10();
-                }
-                Ok(())
-            }
-            Message::KeyboardSelected(k) => {
-                self.leave_tutor();
-                self.keyboard = k;
-                self.persist();
-                self.load_tracker();
-                Ok(())
-            }
-            Message::ToggleTheme => {
-                self.dark = !self.dark;
-                self.persist();
+            m @ (Message::InterfaceSelected(_)
+            | Message::LanguageSelected(_)
+            | Message::KeyboardSelected(_)
+            | Message::ToggleTheme) => {
+                self.update_choices(m);
                 Ok(())
             }
             Message::Back => {
-                self.leave_tutor();
-                self.screen = Screen::Menu;
+                self.back();
                 Ok(())
             }
+            m @ (Message::OpenSections
+            | Message::OpenSection(_)
+            | Message::StartLesson(_)
+            | Message::StartExam(_)
+            | Message::OpenCredits
+            | Message::OpenLink(_)
+            | Message::MilestoneContinue
+            | Message::LessonProgress(_)
+            | Message::PracticeWeakKeys
+            | Message::ResetAsk
+            | Message::ResetConfirm
+            | Message::ResetCancel) => self.update_sections(&m),
             Message::ToggleSpecial | Message::Restart | Message::LessonDelta(_) => {
                 self.update_tutor(&message)
             }
-            m
-            @ (Message::Progress(_) | Message::ProgressMetric(_) | Message::ProgressLesson(_)) => {
+            m @ (Message::Progress(_)
+            | Message::ProgressMetric(_)
+            | Message::ProgressLesson(_)
+            | Message::ProgressSection(_)) => {
                 self.update_progress(&m);
                 Ok(())
             }
@@ -371,6 +614,7 @@ impl App {
             Message::Settings => {
                 self.leave_tutor();
                 self.error = None;
+                self.reset = ResetStep::Idle;
                 self.screen = Screen::Settings(Box::new(SettingsForm::new(&self.profile.config)));
                 Ok(())
             }
@@ -417,7 +661,82 @@ impl App {
                 Task::none()
             }
         };
-        Task::batch([tip, self.follow_cursor()])
+        Task::batch([tip, self.follow_cursor(), self.follow_grid()])
+    }
+
+    /// Opciones del menú: idiomas, teclado y colores.
+    fn update_choices(&mut self, message: Message) {
+        match message {
+            Message::InterfaceSelected(l) => {
+                self.tr = Translator::new(l.code);
+                self.profile.config.language = Some(l.code.to_owned());
+                self.persist();
+            }
+            Message::LanguageSelected(l) => {
+                self.language = l;
+                self.persist();
+                if matches!(self.screen, Screen::Top10(_)) {
+                    self.show_top10();
+                }
+            }
+            Message::KeyboardSelected(k) => {
+                self.leave_tutor();
+                self.keyboard = k;
+                self.persist();
+                self.load_tracker();
+            }
+            Message::ToggleTheme => {
+                self.dark = !self.dark;
+                self.persist();
+            }
+            _ => {}
+        }
+    }
+
+    /// Mensajes de las pantallas de la Progresión.
+    fn update_sections(&mut self, message: &Message) -> std::io::Result<()> {
+        match message {
+            Message::OpenSections => self.open_sections(),
+            Message::OpenSection(section) => self.open_section(*section),
+            Message::StartLesson(slot) => return self.start_lesson(*slot),
+            Message::StartExam(section) => return self.start_exam(*section),
+            Message::OpenCredits => {
+                self.screen = Screen::Credits(assets::lessons_catalog(LESSONS_LANGUAGE)?);
+            }
+            Message::OpenLink(url) => update::open_in_browser(url),
+            Message::MilestoneContinue => {
+                if let Screen::Milestone(milestone) = self.screen {
+                    return self.milestone_continue(milestone);
+                }
+            }
+            Message::LessonProgress(slot) => {
+                self.leave_tutor();
+                self.show_progress(
+                    Module::Progression,
+                    Metric::Speed,
+                    slot.section(),
+                    slot.lesson(),
+                );
+            }
+            Message::PracticeWeakKeys => {
+                self.start(Module::Adaptability)?;
+                if let Screen::Tutor(t) = &mut self.screen {
+                    t.toggle_special()?;
+                }
+            }
+            Message::ResetAsk => self.reset = ResetStep::Confirming,
+            Message::ResetCancel => self.reset = ResetStep::Idle,
+            Message::ResetConfirm => {
+                self.reset = ResetStep::Done;
+                if let Err(e) = self.profile.reset_lessons(LESSONS_LANGUAGE) {
+                    self.reset = ResetStep::Idle;
+                    self.error = Some(e.to_string());
+                }
+                self.load_lessons();
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Mensajes de los botones del ejercicio (fuera de él no hacen nada).
@@ -452,18 +771,35 @@ impl App {
                     _ => Metric::Accuracy,
                 };
                 self.leave_tutor();
-                self.show_progress(module, metric, self.lesson);
+                let lesson = if module == Module::Progression {
+                    0
+                } else {
+                    self.lesson
+                };
+                self.show_progress(module, metric, 0, lesson);
             }
             Message::ProgressMetric(metric) => {
                 if let Screen::Progress(v) = &self.screen {
-                    self.show_progress(v.module, metric, v.lesson);
+                    self.show_progress(v.module, metric, v.section, v.lesson);
                 }
             }
             Message::ProgressLesson(delta) => {
                 if let Screen::Progress(v) = &self.screen {
-                    let lesson = (i32::from(v.lesson) + delta).clamp(0, i32::from(MAX_LESSONS));
+                    let top = match v.module {
+                        Module::Progression if v.section == 0 => 0,
+                        Module::Progression => LESSONS_PER_SECTION,
+                        _ => MAX_LESSONS,
+                    };
+                    let lesson = (i32::from(v.lesson) + delta).clamp(0, i32::from(top));
                     let lesson = u16::try_from(lesson).unwrap_or(0);
-                    self.show_progress(v.module, v.metric, lesson);
+                    self.show_progress(v.module, v.metric, v.section, lesson);
+                }
+            }
+            Message::ProgressSection(delta) => {
+                if let Screen::Progress(v) = &self.screen {
+                    let section = crate::sections::stepped_section(v.section, delta);
+                    let lesson = if section == 0 { 0 } else { v.lesson };
+                    self.show_progress(v.module, v.metric, section, lesson);
                 }
             }
             _ => {}
@@ -604,14 +940,24 @@ impl App {
     }
 
     fn start(&mut self, module: Module) -> std::io::Result<()> {
-        let layout = assets::keyboard(&self.keyboard)?;
         let config = &self.profile.config;
         let spec = ExerciseSpec {
             module,
             lesson: self.lesson,
             paragraphs: usize::from(config.fluid_paragraphs),
             language: self.language.clone(),
+            slot: None,
+            exam: false,
         };
+        self.start_spec(spec)?;
+        self.profile.config.last_module = Some(module);
+        self.persist();
+        Ok(())
+    }
+
+    /// Abre la pantalla del tutor con un ejercicio.
+    fn start_spec(&mut self, spec: ExerciseSpec) -> std::io::Result<()> {
+        let layout = assets::keyboard(&self.keyboard)?;
         let seed = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(1, |d| d.as_secs());
@@ -628,8 +974,6 @@ impl App {
         self.error = None;
         self.note = None;
         self.notice = None;
-        self.profile.config.last_module = Some(module);
-        self.persist();
         Ok(())
     }
 
@@ -645,21 +989,32 @@ impl App {
     }
 
     /// Abre (o actualiza) el gráfico de progreso.
-    fn show_progress(&mut self, module: Module, metric: Metric, lesson: u16) {
+    fn show_progress(&mut self, module: Module, metric: Metric, section: u16, lesson: u16) {
+        // Cada módulo tiene sus gráficos: si no existe el pedido, se muestra el primero.
         // Fluidez y puntaje sólo existen en el módulo de Fluidez.
         let metric = if Metric::for_module(module).contains(&metric) {
             metric
         } else {
-            Metric::Accuracy
+            Metric::for_module(module)
+                .first()
+                .copied()
+                .unwrap_or(Metric::Accuracy)
         };
         let query = ChartQuery {
             module,
             metric,
             lesson,
+            section,
             keyboard: self.keyboard.clone(),
-            language: self.language.clone(),
+            language: if module == Module::Progression {
+                LESSONS_LANGUAGE.to_owned()
+            } else {
+                self.language.clone()
+            },
         };
-        let chart = if metric.per_key() {
+        let chart = if metric == Metric::Stars {
+            Ok(Chart::new(metric, Vec::new(), None))
+        } else if metric.per_key() {
             Ok(Chart::per_key(metric, &self.tracker))
         } else {
             self.profile.chart(&query)
@@ -672,6 +1027,7 @@ impl App {
             module,
             metric,
             lesson,
+            section,
             chart,
         });
     }
@@ -698,6 +1054,7 @@ impl App {
                 }
                 if was_done && t.outcome().is_none() {
                     self.note = None;
+                    self.milestone = None;
                 }
                 if effect.finished {
                     self.record();
@@ -707,11 +1064,18 @@ impl App {
                     self.dark = !self.dark;
                     self.persist();
                 }
+                if effect.next_lesson {
+                    return self.next_lesson();
+                }
                 Ok(())
             }
+            Screen::Sections(_)
+            | Screen::Section(_)
+            | Screen::Credits(_)
+            | Screen::Milestone(_) => self.sections_key(input),
             Screen::Progress(_) | Screen::Top10(_) | Screen::Settings(_) => {
                 match input {
-                    Input::Restart => self.screen = Screen::Menu,
+                    Input::Restart => self.back(),
                     Input::ToggleTheme => {
                         self.dark = !self.dark;
                         self.persist();
@@ -725,7 +1089,11 @@ impl App {
                 match input {
                     Input::Char('p' | 'P') => {
                         let module = self.profile.config.last_module.unwrap_or(Module::Basic);
-                        self.show_progress(module, Metric::Accuracy, self.lesson);
+                        self.show_progress(module, Metric::Accuracy, 0, self.lesson);
+                        return Ok(());
+                    }
+                    Input::Char('n' | 'N') => {
+                        self.open_sections();
                         return Ok(());
                     }
                     Input::Char('t' | 'T') => {
@@ -733,6 +1101,7 @@ impl App {
                         return Ok(());
                     }
                     Input::Char('s' | 'S') => {
+                        self.reset = ResetStep::Idle;
                         self.screen =
                             Screen::Settings(Box::new(SettingsForm::new(&self.profile.config)));
                         return Ok(());
@@ -761,6 +1130,10 @@ impl App {
             Screen::Progress(v) => self.view_progress(v),
             Screen::Top10(entries) => self.view_top10(entries),
             Screen::Settings(form) => self.view_settings(form),
+            Screen::Sections(v) => self.view_sections(v),
+            Screen::Section(v) => self.view_section(v),
+            Screen::Credits(entries) => self.view_credits(entries),
+            Screen::Milestone(milestone) => self.view_milestone(*milestone),
         };
         let mut page = column![].spacing(16);
         if let Some(e) = &self.error {
@@ -857,6 +1230,7 @@ impl App {
                 colors,
             ]
             .align_y(Alignment::Center),
+            self.progression_card(),
             modules,
             self.menu_options(),
             row![
@@ -943,10 +1317,9 @@ impl App {
     fn view_tutor<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
         let tr = &self.tr;
         let spec = tutor.spec();
+        let title = self.tutor_title(spec);
         let heading = column![
-            text(module_name(tr, spec.module))
-                .size(20)
-                .font(style::BOLD),
+            text(title).size(20).font(style::BOLD),
             text(format!("{} · {}", spec.language, self.keyboard))
                 .size(13)
                 .style(style::muted),
@@ -993,12 +1366,26 @@ impl App {
                 .into(),
             );
         }
-        actions.push(action(tr.tr("tutor-new"), Message::Restart));
-        actions.push(action(
-            tr.tr("menu-progress"),
-            Message::Progress(Some(spec.module)),
-        ));
-        let header = top_bar(tr, heading.into(), actions);
+        if let Some(slot) = spec.slot {
+            actions.push(action(tr.tr("sections-retry"), Message::Restart));
+            actions.push(action(
+                tr.tr("menu-progress"),
+                Message::LessonProgress(slot),
+            ));
+        } else {
+            actions.push(action(tr.tr("tutor-new"), Message::Restart));
+            actions.push(action(
+                tr.tr("menu-progress"),
+                Message::Progress(Some(spec.module)),
+            ));
+        }
+        // Desde una lección, volver lleva a la grilla de su sección y no al menú.
+        let back = if spec.slot.is_some() {
+            "sections-back"
+        } else {
+            "menu-back"
+        };
+        let header = bar_with_back(&tr.tr(back), heading.into(), actions);
 
         let palette = Palette::new(self.dark);
         let spans: Vec<Span<'_, Message>> = tutor
@@ -1027,6 +1414,19 @@ impl App {
             page = page.push(self.keyboard_view(tutor));
         }
         page.push(self.tutor_footer(tutor)).into()
+    }
+
+    /// Título del ejercicio: el módulo o, en la Progresión, la lección o el examen.
+    fn tutor_title(&self, spec: &ExerciseSpec) -> String {
+        let tr = &self.tr;
+        match spec.slot {
+            None => module_name(tr, spec.module),
+            Some(slot) if spec.exam => tr.tr_args(
+                "sections-exam-title",
+                &[("section", &slot.section().to_string())],
+            ),
+            Some(slot) => self.lesson_title(slot),
+        }
     }
 
     /// Teclado virtual con la tecla y el dedo siguientes.
@@ -1064,7 +1464,9 @@ impl App {
     fn tutor_footer<'a>(&'a self, tutor: &'a Tutor) -> Element<'a, Message> {
         let tr = &self.tr;
         let spec = tutor.spec();
-        if let Some(o) = tutor.outcome() {
+        if let Some((o, result)) = tutor.outcome().and_then(|o| o.lesson.map(|r| (o, r))) {
+            self.lesson_result(tutor, o, result)
+        } else if let Some(o) = tutor.outcome() {
             let colors = style::Colors::new(self.dark);
             let mark = |ok: bool| if ok { colors.success } else { colors.danger };
             let value = |key: &str, v: f64| tr.tr_args(key, &[("value", &format!("{v:.1}"))]);
@@ -1103,59 +1505,58 @@ impl App {
                 .into()
         } else {
             let (done, total) = tutor.progress();
-            let key = if spec.module == Module::Fluidity {
-                "tutor-hint-backspace"
-            } else {
-                "tutor-hint"
+            let key = match spec.module {
+                Module::Fluidity => "tutor-hint-backspace",
+                Module::Progression => "sections-hint",
+                _ => "tutor-hint",
             };
+            let lesson_status = spec.slot.map(|slot| {
+                self.lesson_status(
+                    slot,
+                    progression::time_limit(total, slot),
+                    tutor.elapsed(),
+                    &tutor.missing_keys(),
+                )
+            });
             let ratio = done as f32 / total.max(1) as f32;
             let (done, total) = (done.to_string(), total.to_string());
-            column![
-                progress_bar(0.0..=1.0, ratio)
-                    .girth(6)
-                    .style(style::progress),
-                text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
-                    .size(13)
-                    .style(style::muted),
-            ]
-            .spacing(8)
-            .into()
+            let mut footer = column![].spacing(8);
+            if let Some(status) = lesson_status {
+                footer = footer.push(status);
+            }
+            footer
+                .push(
+                    progress_bar(0.0..=1.0, ratio)
+                        .girth(6)
+                        .style(style::progress),
+                )
+                .push(
+                    text(tr.tr_args(key, &[("done", &done), ("total", &total)]))
+                        .size(13)
+                        .style(style::muted),
+                )
+                .into()
         }
     }
 
-    fn view_progress<'a>(&'a self, v: &'a ProgressView) -> Element<'a, Message> {
+    /// Qué se está graficando y los controles para elegir lección y sección.
+    fn chart_filters<'a>(&self, v: &ProgressView) -> iced::widget::Row<'a, Message> {
         let tr = &self.tr;
-        let choice = |label: String, active: bool, msg: Message| {
-            button(text(label))
-                .style(style::chip(active))
-                .padding([6, 14])
-                .on_press(msg)
-        };
-        let modules = row(Module::ALL.iter().map(|&m| {
-            choice(
-                module_name(tr, m),
-                m == v.module,
-                Message::Progress(Some(m)),
-            )
-            .into()
-        }))
-        .spacing(6);
-        let metrics = row(Metric::for_module(v.module).iter().map(|&m| {
-            choice(
-                metric_label(tr, m),
-                m == v.metric,
-                Message::ProgressMetric(m),
-            )
-            .into()
-        }))
-        .spacing(6);
-
         // Igual que el título de la ventana del original: teclado o idioma según el módulo.
         let scope = match v.module {
             Module::Basic | Module::Adaptability => self.keyboard.clone(),
-            Module::Velocity | Module::Fluidity => klavaro_i18n::native_name(&self.language)
-                .unwrap_or(&self.language)
-                .to_owned(),
+            Module::Velocity | Module::Fluidity | Module::Progression => {
+                klavaro_i18n::native_name(&self.language)
+                    .unwrap_or(&self.language)
+                    .to_owned()
+            }
+        };
+        let scope = if v.module == Module::Progression {
+            klavaro_i18n::native_name(LESSONS_LANGUAGE)
+                .unwrap_or(LESSONS_LANGUAGE)
+                .to_owned()
+        } else {
+            scope
         };
         let mut filters = row![text(scope).size(13).style(style::muted)]
             .spacing(12)
@@ -1172,6 +1573,63 @@ impl App {
                 Message::ProgressLesson(1),
             ));
         }
+
+        if v.module == Module::Progression {
+            let section = if v.section == 0 {
+                tr.tr("progress-all-sections")
+            } else {
+                tr.tr_args("stats-wpm-value", &[("value", &v.section.to_string())])
+            };
+            filters = filters.push(stepper(
+                section,
+                Message::ProgressSection(-1),
+                Message::ProgressSection(1),
+            ));
+            let lesson = if v.lesson == 0 {
+                tr.tr("progress-all-lessons")
+            } else {
+                tr.tr_args("tutor-lesson-n", &[("lesson", &v.lesson.to_string())])
+            };
+            filters = filters.push(stepper(
+                lesson,
+                Message::ProgressLesson(-1),
+                Message::ProgressLesson(1),
+            ));
+        }
+        filters
+    }
+
+    fn view_progress<'a>(&'a self, v: &'a ProgressView) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let choice = |label: String, active: bool, msg: Message| {
+            button(text(label))
+                .style(style::chip(active))
+                .padding([6, 14])
+                .on_press(msg)
+        };
+        let modules = row(Module::ALL
+            .into_iter()
+            .chain([Module::Progression])
+            .map(|m| {
+                choice(
+                    module_name(tr, m),
+                    m == v.module,
+                    Message::Progress(Some(m)),
+                )
+                .into()
+            }))
+        .spacing(6);
+        let metrics = row(Metric::for_module(v.module).iter().map(|&m| {
+            choice(
+                metric_label(tr, m),
+                m == v.metric,
+                Message::ProgressMetric(m),
+            )
+            .into()
+        }))
+        .spacing(6);
+
+        let filters = self.chart_filters(v);
 
         let chart = &v.chart;
         let summary = match (chart.points.first(), chart.points.last()) {
@@ -1209,6 +1667,13 @@ impl App {
             unit: metric_unit(tr, v.metric),
         };
 
+        let content: Element<'a, Message> = if v.metric == Metric::Stars {
+            self.stars_chart()
+        } else {
+            column![canvas(plot).width(Length::Fill).height(Length::Fill), info]
+                .spacing(8)
+                .into()
+        };
         column![
             top_bar(
                 tr,
@@ -1219,8 +1684,7 @@ impl App {
                 .spacing(12)
                 .align_y(Alignment::Center),
             metrics,
-            card(column![canvas(plot).width(Length::Fill).height(Length::Fill), info].spacing(8))
-                .height(Length::Fill),
+            card(content).height(Length::Fill),
         ]
         .spacing(14)
         .into()
@@ -1296,6 +1760,7 @@ impl App {
                         ]
                         .spacing(14)
                     ),
+                    self.reset_card(),
                 ]
                 .spacing(16)
             )
@@ -1402,8 +1867,17 @@ fn top_bar<'a>(
     title: Element<'a, Message>,
     actions: impl IntoIterator<Item = Element<'a, Message>>,
 ) -> Element<'a, Message> {
+    bar_with_back(&tr.tr("menu-back"), title, actions)
+}
+
+/// Barra superior con el texto dado en el botón de volver.
+fn bar_with_back<'a>(
+    back: &str,
+    title: Element<'a, Message>,
+    actions: impl IntoIterator<Item = Element<'a, Message>>,
+) -> Element<'a, Message> {
     row![
-        button(text(format!("← {}", tr.tr("menu-back"))))
+        button(text(format!("← {back}")))
             .style(style::ghost)
             .padding([8, 12])
             .on_press(Message::Back),
@@ -1549,7 +2023,7 @@ fn metric_label(tr: &Translator, m: Metric) -> String {
         Metric::Speed => tr.tr("progress-wpm-unit"),
         Metric::Score => "(0-10)".to_owned(),
         // «Touch times (s)» ya trae la unidad.
-        Metric::Errors | Metric::TouchTimes => return tr.tr(m.label_key()),
+        Metric::Errors | Metric::TouchTimes | Metric::Stars => return tr.tr(m.label_key()),
     };
     format!("{} {unit}", tr.tr(m.label_key()))
 }
@@ -1559,7 +2033,7 @@ fn metric_unit(tr: &Translator, m: Metric) -> String {
     match m {
         Metric::Accuracy | Metric::Fluidity => " %".to_owned(),
         Metric::Speed => format!(" {}", tr.tr("progress-wpm-unit").trim_matches(['(', ')'])),
-        Metric::Score | Metric::Errors => String::new(),
+        Metric::Score | Metric::Errors | Metric::Stars => String::new(),
         Metric::TouchTimes => " s".to_owned(),
     }
 }
@@ -1652,6 +2126,10 @@ fn on_event(event: Event, status: event::Status, _window: iced::window::Id) -> O
         keyboard::Key::Named(Named::Backspace) => Some(NamedKey::Backspace),
         keyboard::Key::Named(Named::Escape) => Some(NamedKey::Escape),
         keyboard::Key::Named(Named::Space) => Some(NamedKey::Space),
+        keyboard::Key::Named(Named::ArrowUp) => Some(NamedKey::Arrow(Direction::Up)),
+        keyboard::Key::Named(Named::ArrowDown) => Some(NamedKey::Arrow(Direction::Down)),
+        keyboard::Key::Named(Named::ArrowLeft) => Some(NamedKey::Arrow(Direction::Left)),
+        keyboard::Key::Named(Named::ArrowRight) => Some(NamedKey::Arrow(Direction::Right)),
         _ => None,
     };
     let ctrl = modifiers.control() || modifiers.command();

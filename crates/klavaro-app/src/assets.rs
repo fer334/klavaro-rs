@@ -11,6 +11,8 @@ use std::path::PathBuf;
 
 use klavaro_core::generators::basic::LessonMask;
 use klavaro_core::keyboard::{FingerMap, KeyboardLayout};
+use klavaro_core::progression::Slot;
+use klavaro_data::catalog::{self, CatalogEntry};
 use klavaro_data::{kbd, lessons, texts};
 
 include!(concat!(env!("OUT_DIR"), "/assets.rs"));
@@ -92,6 +94,19 @@ pub(crate) fn basic_lessons() -> io::Result<Vec<LessonMask>> {
 /// Qué dedo usa cada posición del teclado.
 pub(crate) fn fingers() -> io::Result<FingerMap> {
     lessons::parse_fingers(&read("fingers_position.txt")?).map_err(|e| invalid(e.to_string()))
+}
+
+/// Catálogo de la Progresión de un idioma.
+pub(crate) fn lessons_catalog(language: &str) -> io::Result<Vec<CatalogEntry>> {
+    catalog::parse(&read(&format!("{language}.progression"))?).map_err(|e| invalid(e.to_string()))
+}
+
+/// Texto de una lección de la Progresión.
+pub(crate) fn lesson(language: &str, slot: Slot) -> io::Result<CatalogEntry> {
+    lessons_catalog(language)?
+        .into_iter()
+        .find(|entry| entry.slot == slot)
+        .ok_or_else(|| invalid(format!("no hay texto para la lección {slot:?}")))
 }
 
 /// Palabras de un idioma.

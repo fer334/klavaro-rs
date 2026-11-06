@@ -5,6 +5,7 @@
 //! reutilizar su contenido y para importar la configuración y el historial de quienes ya lo
 //! usan:
 //!
+//! - [`catalog`]: textos de la Progresión (`*.progression`).
 //! - [`kbd`]: distribuciones de teclado (`*.kbd`).
 //! - [`lessons`]: lecciones del curso básico (`basic_lessons.txt`) y mapa de dedos
 //!   (`fingers_position.txt`).
@@ -14,6 +15,7 @@
 //!
 //! Todas las funciones trabajan sobre `&str`: leer el disco es tarea de quien llama.
 
+pub mod catalog;
 pub mod kbd;
 pub mod legacy;
 pub mod lessons;

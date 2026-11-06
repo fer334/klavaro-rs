@@ -190,7 +190,8 @@ fn goal_mut(goals: &mut Goals, module: Module) -> &mut Goal {
         Module::Basic => &mut goals.basic,
         Module::Adaptability => &mut goals.adaptability,
         Module::Velocity => &mut goals.velocity,
-        Module::Fluidity => &mut goals.fluidity,
+        // La Progresión no tiene metas editables ni está en `Module::ALL`.
+        Module::Fluidity | Module::Progression => &mut goals.fluidity,
     }
 }
 

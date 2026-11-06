@@ -1,0 +1,11 @@
+{
+  "wikis": ["simple", "en"],
+  "license": "CC BY-SA 4.0",
+  "list_wiki": "en",
+  "list_prefix": "Wikipedia:Vital articles/data/",
+  "list_pages": [
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M",
+    "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "others"
+  ],
+  "levels": [1, 2, 3, 4]
+}

@@ -10,6 +10,7 @@
 
 use klavaro_core::Module;
 use klavaro_core::goals::Goals;
+use klavaro_core::progression::{FULL_STARS_ACCURACY, Slot};
 use klavaro_core::tracker::KeyTracker;
 use klavaro_store::{History, SessionFilter, StoreError};
 
@@ -31,6 +32,8 @@ pub(crate) enum Metric {
     Errors,
     /// Tiempo promedio de pulsación por tecla, en segundos (sólo Adaptabilidad).
     TouchTimes,
+    /// Estrellas por sección (sólo Progresión). No sale del historial de sesiones.
+    Stars,
 }
 
 impl Metric {
@@ -39,6 +42,7 @@ impl Metric {
         match module {
             Module::Fluidity => &[Self::Accuracy, Self::Speed, Self::Fluidity, Self::Score],
             Module::Adaptability => &[Self::Accuracy, Self::Speed, Self::Errors, Self::TouchTimes],
+            Module::Progression => &[Self::Speed, Self::Accuracy, Self::Stars],
             Module::Basic | Module::Velocity => &[Self::Accuracy, Self::Speed],
         }
     }
@@ -52,6 +56,7 @@ impl Metric {
             Self::Score => "stats-score",
             Self::Errors => "progress-errors",
             Self::TouchTimes => "progress-touch-times",
+            Self::Stars => "sections-stars",
         }
     }
 
@@ -63,7 +68,7 @@ impl Metric {
     /// Decimales para mostrar un valor.
     pub(crate) fn decimals(self) -> usize {
         match self {
-            Self::Errors => 0,
+            Self::Errors | Self::Stars => 0,
             Self::TouchTimes => 3,
             Self::Accuracy | Self::Speed | Self::Fluidity | Self::Score => 1,
         }
@@ -79,6 +84,7 @@ impl Metric {
             // Como el original: de 0 a un 5 % más que la barra más alta.
             Self::Errors => (0.0, 1.05),
             Self::TouchTimes => (0.0, 0.0105),
+            Self::Stars => (0.0, 150.0),
         }
     }
 
@@ -88,7 +94,7 @@ impl Metric {
             Self::Accuracy => Some(goal.accuracy),
             Self::Speed => Some(goal.speed),
             Self::Fluidity => goal.fluidity,
-            Self::Score | Self::Errors | Self::TouchTimes => None,
+            Self::Score | Self::Errors | Self::TouchTimes | Self::Stars => None,
         }
     }
 }
@@ -100,8 +106,10 @@ pub(crate) struct ChartQuery {
     pub(crate) module: Module,
     /// Qué se grafica.
     pub(crate) metric: Metric,
-    /// Lección del curso básico (0 = todas).
+    /// Lección del curso básico o de la Progresión (0 = todas).
     pub(crate) lesson: u16,
+    /// Sección de la Progresión (0 = todas).
+    pub(crate) section: u16,
     /// Teclado actual.
     pub(crate) keyboard: String,
     /// Idioma actual de los textos.
@@ -172,7 +180,12 @@ impl Chart {
                 })
                 .collect()
         };
-        Ok(Self::new(q.metric, points, q.metric.goal(goals, q.module)))
+        let goal = if q.module == Module::Progression {
+            progression_goal(q)
+        } else {
+            q.metric.goal(goals, q.module)
+        };
+        Ok(Self::new(q.metric, points, goal))
     }
 
     /// Barras por tecla con el rastreo de un teclado: las [`DATA_POINTS`] teclas con más
@@ -274,6 +287,7 @@ fn grid_step(metric: Metric) -> f64 {
         Metric::Speed | Metric::Fluidity => 20.0,
         Metric::Score => 2.0,
         Metric::Errors | Metric::TouchTimes => 1.0,
+        Metric::Stars => 30.0,
     }
 }
 
@@ -288,6 +302,20 @@ fn nice_step(raw: f64) -> f64 {
         .unwrap_or(10.0 * base)
 }
 
+/// Meta de la línea de referencia en la Progresión: la de la lección elegida, la de la sección
+/// si se ve toda, y ninguna para el conjunto.
+fn progression_goal(q: &ChartQuery) -> Option<f64> {
+    match q.metric {
+        Metric::Accuracy => Some(FULL_STARS_ACCURACY),
+        Metric::Speed if q.section == 0 => None,
+        Metric::Speed => Slot::new(q.section, q.lesson).map_or_else(
+            || Some(f64::from(q.section)),
+            |slot| Some(slot.target_wpm()),
+        ),
+        _ => None,
+    }
+}
+
 fn filter(q: &ChartQuery) -> SessionFilter {
     let mut f = SessionFilter::module(q.module);
     match q.module {
@@ -297,6 +325,14 @@ fn filter(q: &ChartQuery) -> SessionFilter {
         }
         Module::Adaptability => f.keyboard = Some(q.keyboard.clone()),
         Module::Velocity | Module::Fluidity => f.language = Some(q.language.clone()),
+        Module::Progression => {
+            f.language = Some(q.language.clone());
+            if q.section != 0 && q.lesson != 0 {
+                f.lesson_name = Some(format!("{}-{:02}", q.section, q.lesson));
+            } else if q.section != 0 {
+                f.lesson = Some(q.section);
+            }
+        }
     }
     f
 }
@@ -311,8 +347,49 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn progression_charts_filter_by_section_and_lesson() {
+        let h = History::in_memory().expect("base");
+        for (at, lesson, language) in [
+            (1, "75-03", "C"),
+            (2, "75-03", "C"),
+            (3, "75-04", "C"),
+            (4, "80-03", "C"),
+            (5, "75-03", "es"),
+        ] {
+            let mut record = session(Module::Progression, at, lesson, "dvorak_us");
+            record.language = Some(language.into());
+            h.record(&record).expect("guardar");
+        }
+        let goals = Goals::default();
+        let mut q = query(Module::Progression, Metric::Speed);
+        q.language = "C".into();
+        let load = |q: &ChartQuery| Chart::load(&h, &goals, q).expect("gráfico");
+
+        let everything = load(&q);
+        assert_eq!(everything.points.len(), 4);
+        assert_eq!(everything.goal, None);
+
+        q.section = 75;
+        let section = load(&q);
+        assert_eq!(section.points.len(), 3);
+        assert_eq!(section.goal, Some(75.0));
+
+        q.lesson = 3;
+        let lesson = load(&q);
+        assert_eq!(lesson.points.len(), 2, "sólo sus intentos, en este idioma");
+        assert_eq!(
+            lesson.goal,
+            Slot::new(75, 3).map(klavaro_core::progression::Slot::target_wpm)
+        );
+
+        q.metric = Metric::Accuracy;
+        assert_eq!(load(&q).goal, Some(FULL_STARS_ACCURACY));
+    }
+
     fn query(module: Module, metric: Metric) -> ChartQuery {
         ChartQuery {
+            section: 0,
             module,
             metric,
             lesson: 0,

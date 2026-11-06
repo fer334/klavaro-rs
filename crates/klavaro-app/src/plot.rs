@@ -35,7 +35,7 @@ pub(crate) struct Plot<'a> {
 fn series_colors(metric: Metric) -> (Color, Color) {
     match metric {
         // Las barras de errores usan el mismo verde que la precisión (`PLOT_GREEN_2`).
-        Metric::Accuracy | Metric::Errors => (
+        Metric::Accuracy | Metric::Errors | Metric::Stars => (
             Color::from_rgb8(0x66, 0xaa, 0x88),
             Color::from_rgb8(0xaa, 0xee, 0xbb),
         ),

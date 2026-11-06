@@ -36,7 +36,7 @@ pub(crate) fn utterance(module: Module, target: &[char], cursor: usize) -> Optio
                 .collect();
             Some(Say::Word(word))
         }
-        Module::Fluidity => None,
+        Module::Fluidity | Module::Progression => None,
     }
 }
 

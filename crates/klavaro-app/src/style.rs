@@ -273,6 +273,27 @@ pub(crate) fn module_card(theme: &Theme, status: button::Status) -> button::Styl
     }
 }
 
+/// Casilla de una grilla de la Progresión: la elegida lleva el borde resaltado y una bloqueada
+/// se ve apagada.
+pub(crate) fn tile(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme, status| {
+        let c = Colors::of(theme);
+        let (bg, edge) = match status {
+            button::Status::Hovered => (mix(c.surface, c.primary, 0.05), c.primary),
+            button::Status::Pressed => (mix(c.surface, c.primary, 0.12), c.primary),
+            button::Status::Active => (c.surface, c.border),
+            button::Status::Disabled => (c.sunken, c.border),
+        };
+        button::Style {
+            background: Some(Background::Color(bg)),
+            text_color: c.text,
+            border: border(if selected { c.primary } else { edge }, RADIUS),
+            shadow: Shadow::default(),
+            snap: true,
+        }
+    }
+}
+
 /// Lista desplegable con las esquinas de los demás campos.
 pub(crate) fn pick(theme: &Theme, status: pick_list::Status) -> pick_list::Style {
     let c = Colors::of(theme);

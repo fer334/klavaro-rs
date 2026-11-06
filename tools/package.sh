@@ -80,6 +80,11 @@ Files: *
 License: GPL-3.0-or-later
  On Debian systems, the full text of the GNU General Public License version 3
  can be found in /usr/share/common-licenses/GPL-3.
+ .
+ The Progression texts are by the contributors of Wikipedia and Simple English
+ Wikipedia, under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).
+ They were shortened and adapted, and are distributed under the same license.
+ The Credits screen links each text to its source article.
 EOF
     # Bibliotecas que necesita el binario, como las calcula dpkg-shlibdeps (que pide una
     # carpeta debian/ con control); si falla, sólo libc.

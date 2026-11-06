@@ -8,13 +8,17 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use klavaro_core::Module;
+use klavaro_core::progression::{MAX_STARS, Milestone, NextStep};
 use klavaro_core::ranking::{MIN_CHARS, Ranking, RankingEntry, Rejection, text_resembles_language};
 use klavaro_core::tracker::KeyTracker;
 use klavaro_store::history::ScoreRecord;
-use klavaro_store::{Config, History, Paths, SessionRecord, StoreError, import, paths};
+use klavaro_store::{
+    Config, History, LessonAttempt, LessonBest, Paths, SessionRecord, StoreError, import, paths,
+};
 
 use crate::exercise::ExerciseSpec;
 use crate::progress::{Chart, ChartQuery};
+use crate::sections;
 use crate::tutor::Outcome;
 
 /// Qué pasó al registrar un ejercicio terminado.
@@ -24,6 +28,19 @@ pub(crate) enum Recorded {
     Logged(Option<Rejection>),
     /// Fluidez: entró al Top 10 en ese puesto.
     Ranked(usize),
+    /// Progresión: la lección jugada, si hubo récord y qué sigue.
+    Lesson {
+        /// Si superó el mejor resultado anterior de la lección.
+        record: bool,
+        /// Estrellas que sumó respecto del mejor resultado anterior.
+        gained: u8,
+        /// Qué abre la lección.
+        next: NextStep,
+        /// El logro que acaba de alcanzar, si hubo.
+        milestone: Option<Milestone>,
+        /// Si se jugó como examen.
+        exam: bool,
+    },
     /// Fluidez con menos de [`MIN_CHARS`] caracteres: no se guarda, como en el original.
     TooShort {
         /// Caracteres tecleados.
@@ -169,6 +186,9 @@ impl Profile {
         typed: &str,
         model: &str,
     ) -> Result<Recorded, StoreError> {
+        if spec.module == Module::Progression {
+            return self.record_lesson(spec, keyboard, outcome);
+        }
         let stats = &outcome.stats;
         if spec.module == Module::Fluidity && stats.touches < MIN_CHARS {
             return Ok(Recorded::TooShort {
@@ -184,7 +204,9 @@ impl Profile {
         match spec.module {
             Module::Basic => record.lesson = Some(format!("{:02}", spec.lesson)),
             Module::Adaptability => {}
-            Module::Velocity | Module::Fluidity => record.lesson = Some("Default".to_owned()),
+            Module::Velocity | Module::Fluidity | Module::Progression => {
+                record.lesson = Some("Default".to_owned());
+            }
         }
         if spec.module != Module::Basic {
             record.language = Some(spec.language.clone());
@@ -227,6 +249,84 @@ impl Profile {
     ) -> Result<(), StoreError> {
         match self.history.as_mut() {
             Some(h) => h.save_tracker(keyboard, tracker),
+            None => Ok(()),
+        }
+    }
+
+    /// Guarda el intento de una lección de la Progresión, sin el mínimo de caracteres ni el
+    /// Top 10 de Fluidez.
+    fn record_lesson(
+        &mut self,
+        spec: &ExerciseSpec,
+        keyboard: &str,
+        outcome: &Outcome,
+    ) -> Result<Recorded, StoreError> {
+        let (Some(result), Some(history)) = (outcome.lesson, self.history.as_mut()) else {
+            return Ok(Recorded::Logged(None));
+        };
+        let slot = result.slot;
+        let stats = &outcome.stats;
+        let previous = history.lesson_bests(&spec.language)?;
+        let before = previous.iter().find(|b| b.slot == slot);
+        let at = now();
+        let attempt = LessonAttempt {
+            at,
+            language: spec.language.clone(),
+            slot,
+            target_wpm: result.target_wpm,
+            text_id: outcome
+                .source
+                .as_ref()
+                .map_or_else(String::new, |source| source.text_id.clone()),
+            keyboard: keyboard.to_owned(),
+            wpm: result.speed,
+            accuracy: stats.accuracy,
+            fluidity: stats.fluidity,
+            score: stats.score(),
+            stars: result.stars,
+            elapsed: stats.elapsed,
+        };
+        let mut session = SessionRecord::from_stats(spec.module, at, stats);
+        session.wpm = result.speed;
+        session.lesson = Some(format!("{}-{:02}", slot.section(), slot.lesson()));
+        session.keyboard = Some(keyboard.to_owned());
+        session.language = Some(spec.language.clone());
+        let exam_before = history.exam_section(&spec.language)?;
+        history.record_lesson(&attempt, &session)?;
+        if spec.exam && result.stars >= MAX_STARS {
+            history.pass_exam(&spec.language, slot.section())?;
+        }
+        let ladder = sections::ladder(
+            &history.lesson_bests(&spec.language)?,
+            history.exam_section(&spec.language)?,
+        );
+        Ok(Recorded::Lesson {
+            record: before.is_some_and(|b| result.speed > b.wpm || result.stars > b.stars),
+            gained: result.stars.saturating_sub(before.map_or(0, |b| b.stars)),
+            next: ladder.next_step(slot),
+            milestone: ladder.milestone(&sections::ladder(&previous, exam_before), slot),
+            exam: spec.exam,
+        })
+    }
+
+    /// Mejores resultados de cada lección de la Progresión en un idioma.
+    pub(crate) fn lesson_bests(&self, language: &str) -> Result<Vec<LessonBest>, StoreError> {
+        self.history
+            .as_ref()
+            .map_or_else(|| Ok(Vec::new()), |h| h.lesson_bests(language))
+    }
+
+    /// Sección más alta superada con un examen en un idioma (0 si no hay).
+    pub(crate) fn exam_section(&self, language: &str) -> Result<u16, StoreError> {
+        self.history
+            .as_ref()
+            .map_or(Ok(0), |h| h.exam_section(language))
+    }
+
+    /// Borra las estrellas de la Progresión en un idioma. El historial de sesiones no cambia.
+    pub(crate) fn reset_lessons(&self, language: &str) -> Result<(), StoreError> {
+        match &self.history {
+            Some(h) => h.reset_lessons(language).map(|_| ()),
             None => Ok(()),
         }
     }
@@ -274,10 +374,240 @@ fn system_user_name() -> Option<String> {
 mod tests {
     use std::time::Duration;
 
-    use klavaro_core::goals::{Comment, GoalCheck};
+    use klavaro_core::goals::{Comment, GoalCheck, Goals};
     use klavaro_core::metrics::Stats;
+    use klavaro_core::progression::{Ladder, Slot};
 
     use super::*;
+    use crate::tutor::{Input, Tutor};
+
+    /// Juega una lección de punta a punta con el tutor real y la registra.
+    fn play_lesson(profile: &mut Profile, slot: Slot, ms_per_key: u64) -> Recorded {
+        let spec = ExerciseSpec {
+            slot: Some(slot),
+            exam: false,
+            language: sections::LESSONS_LANGUAGE.to_owned(),
+            ..spec(Module::Progression)
+        };
+        let layout = crate::assets::keyboard("qwerty_es").expect("kbd");
+        let mut tutor =
+            Tutor::new(spec, layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
+        for (i, c) in tutor.text().chars().enumerate() {
+            let at = Duration::from_millis(ms_per_key * i as u64);
+            tutor.handle(Input::Char(c), at).expect("tecla");
+        }
+        let outcome = tutor.outcome().cloned().expect("terminó");
+        profile
+            .record(tutor.spec(), "dvorak", &outcome, &tutor.text(), "")
+            .expect("guardar")
+    }
+
+    fn stars_saved(profile: &Profile) -> Ladder {
+        sections::ladder(
+            &profile
+                .lesson_bests(sections::LESSONS_LANGUAGE)
+                .expect("leer"),
+            profile
+                .exam_section(sections::LESSONS_LANGUAGE)
+                .expect("leer"),
+        )
+    }
+
+    #[test]
+    fn passing_a_whole_section_opens_the_next_one() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        assert!(!stars_saved(&profile).section_unlocked(25));
+        // Lo bastante rápido para las 5 estrellas en cada meta de la sección de 20 PPM.
+        for lesson in 1..=30 {
+            let slot = Slot::new(20, lesson).expect("lección");
+            assert!(stars_saved(&profile).lesson_unlocked(slot), "{slot:?}");
+            let recorded = play_lesson(&mut profile, slot, 200);
+            let Recorded::Lesson {
+                next, milestone, ..
+            } = recorded
+            else {
+                panic!("{recorded:?}");
+            };
+            assert_eq!(next, stars_saved(&profile).next_step(slot));
+            let expected = (lesson == 30).then_some(Milestone::SectionPassed(20));
+            assert_eq!(milestone, expected, "{slot:?}");
+        }
+        let saved = stars_saved(&profile);
+        assert!(saved.section_passed(20));
+        assert!(saved.lesson_unlocked(Slot::new(25, 1).expect("lección")));
+        assert_eq!(saved.total_stars(), 150);
+        let history = profile.history().expect("historial");
+        assert_eq!(history.count(Module::Progression).expect("contar"), 30);
+        assert_eq!(history.count(Module::Fluidity).expect("contar"), 0);
+    }
+
+    #[test]
+    fn resetting_removes_the_stars() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        play_lesson(&mut profile, Slot::FIRST, 200);
+        profile
+            .reset_lessons(sections::LESSONS_LANGUAGE)
+            .expect("borrar");
+        assert_eq!(stars_saved(&profile).total_stars(), 0);
+        let history = profile.history().expect("historial");
+        assert_eq!(history.count(Module::Progression).expect("contar"), 1);
+    }
+
+    #[test]
+    fn without_a_history_lessons_can_still_be_played() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        profile.history = None;
+        assert_eq!(
+            play_lesson(&mut profile, Slot::FIRST, 200),
+            Recorded::Logged(None)
+        );
+        assert_eq!(
+            profile
+                .lesson_bests(sections::LESSONS_LANGUAGE)
+                .expect("leer"),
+            Vec::new()
+        );
+    }
+
+    /// Recorre toda la Progresión con el tutor real: ninguna lección queda bloqueada y cada
+    /// sección da su logro una sola vez. Tarda porque juega las 510 lecciones.
+    #[test]
+    fn the_whole_progression_can_be_completed() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        let mut current = Slot::FIRST;
+        let mut played = 0;
+        let mut milestones = Vec::new();
+        loop {
+            assert!(
+                stars_saved(&profile).lesson_unlocked(current),
+                "{current:?}"
+            );
+            // 100 ms por tecla son 120 PPM: alcanza para las 5 estrellas en todas las metas.
+            let recorded = play_lesson(&mut profile, current, 100);
+            played += 1;
+            let Recorded::Lesson {
+                next, milestone, ..
+            } = recorded
+            else {
+                panic!("{recorded:?}");
+            };
+            milestones.extend(milestone);
+            match next {
+                NextStep::Open(following) => current = following,
+                NextStep::Completed => break,
+                other => panic!("{current:?}: {other:?}"),
+            }
+        }
+        assert_eq!(played, 510);
+        assert_eq!(milestones.len(), 17);
+        assert_eq!(milestones.last(), Some(&Milestone::Completed));
+        assert_eq!(milestones[0], Milestone::SectionPassed(20));
+        let saved = stars_saved(&profile);
+        assert_eq!(saved.total_stars(), 2550);
+        assert_eq!(saved.highest_passed(), Some(100));
+    }
+
+    /// Juega el examen de una sección con el tutor real.
+    fn play_exam(profile: &mut Profile, section: u16, ms_per_key: u64) -> Recorded {
+        let spec = ExerciseSpec {
+            slot: Ladder::exam_slot(section),
+            exam: true,
+            language: sections::LESSONS_LANGUAGE.to_owned(),
+            ..spec(Module::Progression)
+        };
+        let layout = crate::assets::keyboard("qwerty_es").expect("kbd");
+        let mut tutor =
+            Tutor::new(spec, layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
+        for (i, c) in tutor.text().chars().enumerate() {
+            let at = Duration::from_millis(ms_per_key * i as u64);
+            tutor.handle(Input::Char(c), at).expect("tecla");
+        }
+        let outcome = tutor.outcome().cloned().expect("terminó");
+        profile
+            .record(tutor.spec(), "dvorak", &outcome, &tutor.text(), "")
+            .expect("guardar")
+    }
+
+    #[test]
+    fn passing_an_exam_opens_the_next_section() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        // 150 ms por tecla son 80 PPM, más que los 60 que pide el examen.
+        let recorded = play_exam(&mut profile, 60, 150);
+        assert_eq!(
+            recorded,
+            Recorded::Lesson {
+                record: false,
+                gained: 5,
+                next: NextStep::Open(Slot::new(65, 1).expect("lección")),
+                milestone: Some(Milestone::SectionPassed(60)),
+                exam: true,
+            }
+        );
+        let saved = stars_saved(&profile);
+        assert_eq!(saved.current_section(), 65);
+        assert_eq!(saved.total_stars(), 5, "sólo las de la lección jugada");
+    }
+
+    #[test]
+    fn failing_an_exam_changes_nothing_but_keeps_the_attempt() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        // 300 ms por tecla son 40 PPM, lejos de los 60 que pide.
+        let recorded = play_exam(&mut profile, 60, 300);
+        assert!(matches!(
+            recorded,
+            Recorded::Lesson {
+                milestone: None,
+                exam: true,
+                ..
+            }
+        ));
+        let saved = stars_saved(&profile);
+        assert_eq!(saved.current_section(), 20);
+        assert!(!saved.section_unlocked(25));
+    }
+
+    #[test]
+    fn a_short_lesson_is_saved_and_stays_out_of_the_top_10() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        let recorded = play_lesson(&mut profile, Slot::FIRST, 200);
+        assert_eq!(
+            recorded,
+            Recorded::Lesson {
+                record: false,
+                gained: 5,
+                next: NextStep::Open(Slot::new(20, 2).expect("lección")),
+                milestone: None,
+                exam: false,
+            }
+        );
+        assert_eq!(profile.ranking("es").expect("top").entries().len(), 0);
+    }
+
+    #[test]
+    fn a_worse_attempt_keeps_the_stars_and_a_better_one_is_a_record() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        // A 15,17 PPM de meta toca una tecla cada 791 ms: 1100 ms da menos del 80 %.
+        play_lesson(&mut profile, Slot::FIRST, 1100);
+        assert_eq!(stars_saved(&profile).stars(Slot::FIRST), 2);
+        assert!(matches!(
+            play_lesson(&mut profile, Slot::FIRST, 200),
+            Recorded::Lesson {
+                record: true,
+                gained: 3,
+                ..
+            }
+        ));
+        assert_eq!(stars_saved(&profile).stars(Slot::FIRST), 5);
+        assert!(matches!(
+            play_lesson(&mut profile, Slot::FIRST, 1100),
+            Recorded::Lesson {
+                record: false,
+                gained: 0,
+                ..
+            }
+        ));
+        assert_eq!(stars_saved(&profile).stars(Slot::FIRST), 5);
+    }
 
     const MODEL: &str = "En un lugar de la Mancha, de cuyo nombre no quiero acordarme, no ha \
         mucho tiempo que vivía un hidalgo de los de lanza en astillero, adarga antigua.";
@@ -288,6 +618,8 @@ mod tests {
             lesson: 4,
             paragraphs: 3,
             language: "es".to_owned(),
+            slot: None,
+            exam: false,
         }
     }
 
@@ -308,6 +640,8 @@ mod tests {
             },
             comment: Comment::FluidCongratulations,
             advance: false,
+            lesson: None,
+            source: None,
         }
     }
 

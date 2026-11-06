@@ -5,3 +5,6 @@
 # Código original de referencia (se descarga aparte, no se versiona)
 /upstream/
 /dist
+# Caché de textos descargados para la Progresión
+/tools/progression/cache/
+__pycache__/
