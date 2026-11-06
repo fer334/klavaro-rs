@@ -314,38 +314,51 @@ Los filtros no miden la calidad: la revisión humana de la Fase 3 sigue siendo n
 
 ### Tareas
 
-**Limpieza y recorte (`select.py`)**
-- [ ] Normalizar comillas, guiones y espacios, y quitar paréntesis de pronunciación y restos de
+**Limpieza y recorte (`textrules.py` y `selection.py`)**
+- [x] Normalizar comillas, guiones y espacios, y quitar paréntesis de pronunciación y restos de
   plantillas.
-- [ ] Cortar solo en oraciones completas, desde el inicio del artículo para conservar la
+- [x] Cortar solo en oraciones completas, desde el inicio del artículo para conservar la
   presentación del tema, y terminar en punto.
 
 **Filtros, tomados del análisis de EdClub**
-- [ ] Oración más larga: hasta 34 palabras.
-- [ ] Mayúsculas: hasta 7 %. Puntuación: hasta 5 %.
-- [ ] Solo caracteres ASCII que se escriben en cualquier teclado inglés, sin símbolos raros.
-- [ ] El tema aparece en la primera oración.
-- [ ] Rechazar textos que dependan de lo anterior ("Sin embargo…", "Esto…", "It…") y listas.
-- [ ] Rechazar duplicados y casi duplicados.
+- [x] Oración más larga: hasta 34 palabras.
+- [x] Mayúsculas: hasta 7 %. Puntuación: hasta 5 %.
+- [x] Solo caracteres ASCII que se escriben en cualquier teclado inglés, sin símbolos raros.
+- [x] El tema aparece en la primera oración.
+- [x] Temas cotidianos o populares: mínimo de visitas, sin lenguaje académico y con tope por tema.
+- [x] Rechazar textos que dependan de lo anterior ("Sin embargo…", "Esto…", "It…") y listas.
+- [x] Rechazar duplicados y casi duplicados.
 
 **Dificultad y asignación**
-- [ ] Calcular `D`, con la rareza de palabras medida sobre el propio corpus de candidatos.
-- [ ] Definir la franja de `D` de cada sección, de modo que suba con la meta.
-- [ ] Asignar a cada lección un candidato sin usar, dentro de su largo y de la franja de su sección.
-- [ ] No repetir tema en dos lecciones seguidas, ni artículo en todo el catálogo.
-- [ ] Que el proceso sea determinista e informe las lecciones sin cubrir.
+- [x] Calcular `D`, con la rareza de palabras medida sobre el propio corpus de candidatos.
+- [x] Definir la franja de `D` de cada sección, de modo que suba con la meta.
+- [x] Asignar a cada lección un candidato sin usar, dentro de su largo y de la franja de su sección.
+- [x] No repetir tema en dos lecciones seguidas, ni artículo en todo el catálogo.
+- [x] Que el proceso sea determinista e informe las lecciones sin cubrir.
 
 **Revisión humana**
-- [ ] Generar el doble de textos de los necesarios para poder descartar.
-- [ ] Revisar sentido, tono y contenido sensible o desactualizado, y guardar las decisiones en un
-  archivo versionado para que sobrevivan a una nueva generación.
+- [x] Proponer un texto por lección y, cuando se rechaza uno, tomar el siguiente candidato solo para esa
+  lección. Rinde más que generar el doble, porque los aprobados no cambian.
+- [x] Revisar sentido, tono y contenido sensible o desactualizado, y guardar las decisiones en un
+  archivo versionado (`tools/progression/review.json`). Esta primera lectura la hizo Claude.
+- [ ] Hacer una revisión humana del catálogo, por muestreo o completa.
 
 ### Criterios de aceptación
 
-- [ ] 510 textos, sin artículos repetidos.
-- [ ] El largo y la franja de `D` son correctos en cada lección.
-- [ ] Todos los textos tienen fuente, revisión y licencia, y todos pasaron la revisión.
-- [ ] Generar el catálogo dos veces produce archivos idénticos.
+- [x] 510 textos, sin artículos repetidos.
+- [x] El largo y la franja de `D` son correctos en cada lección.
+- [x] Todos los textos tienen fuente, revisión y licencia.
+- [x] Todos pasaron la revisión de Claude. Falta la humana.
+- [x] Generar el catálogo dos veces produce archivos idénticos.
+
+### Resultado de la selección
+
+`assets/C.progression` tiene 510 textos únicos de 510 artículos distintos. Se rechazaron 233 artículos
+en la lectura. La dificultad media sube en cada sección, y las primeras usan sobre todo Simple English.
+
+Se prefieren los temas cotidianos o populares: se descartan los artículos con menos de 150 visitas diarias
+y los de lenguaje académico, y cada sección tiene tope por tema (1 de matemática y 3 de ciencias físicas,
+historia, personas, y filosofía y religión), y a lo sumo 1 texto sobre religión o dioses. Por eso `fetch.py` también baja las visitas de cada artículo.
 
 ---
 

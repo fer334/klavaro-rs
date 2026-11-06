@@ -13,6 +13,34 @@ LENGTH_TOLERANCE = 0.15
 MAX_WORDS_IN_SENTENCE = 34
 MAX_CAPITALS = 0.07
 MAX_PUNCTUATION = 0.05
+MAX_DIGITS = 0.04
+MAX_PARENTHESES = 2
+# Temas que no conviene hacer copiar en un ejercicio de mecanografía.
+SENSITIVE = re.compile(
+    r"\b(rape|raped|sexual\w*|sex|porn\w*|genocide|holocaust|suicide|murder\w*|massacre\w*|"
+    r"nazi\w*|terror\w*|torture\w*|slave\w*|abortion|incest|pedophil\w*|paedophil\w*|"
+    r"prostitut\w*|cocaine|heroin|lynch\w*|racis\w*|execut(?:ed|ion)|war crimes?|atrocit\w*|"
+    r"assassinat\w*|mass shooting|extermin\w*|penis|vagina|genital\w*|bomb(?:ing|ings)|"
+    r"atomic bomb\w*|nuclear weapons?|killed|dictator\w*|fascis\w*|rapist)\b",
+    re.IGNORECASE,
+)
+# Frases que se desactualizan o que muestran que el texto no se sostiene solo.
+UNSUITABLE = re.compile(
+    r"\b(as of|currently|at present|recent years|this article|see also|is a list of|refers? to|"
+    r"pronounced|listen|disambiguation|below|above|following:|template:|for the [^.]*, see|US:|20[12]\d)\b",
+    re.IGNORECASE,
+)
+# Temas académicos o especializados, que se leen peor que uno cotidiano.
+TECHNICAL = re.compile(
+    r"\b(sub-?disciplines?|subfields?|branch of (?:mathematics|physics|chemistry|algebra|geometry|"
+    r"statistics|topology)|in (?:mathematics|physics|chemistry|geometry|abstract algebra|"
+    r"mathematical logic|statistics|nuclear physics|linguistics|taxonomy)\b|theorems?|polynomials?|"
+    r"tensors?|scalars?|algebraic|prokaryot\w*|eukaryot\w*|macromolecul\w*|isotopes?|phylum|"
+    r"subfamil\w*|superfamil\w*|clades?|principalit\w*|khanates?|sultanates?|caliphates?|"
+    r"thalassocratic|polity|satraps?|historiograph\w*|hypothesis test\w*)\b",
+    re.IGNORECASE,
+)
+LEFTOVERS = re.compile(r"''|\(\s|\)\(|\(\s*\)|\(\s*[,;:]|[,;:]\s*\)|,\s*,|\s{2}|\.\.|\s-\s*\)|\{|displaystyle")
 
 ABBREVIATIONS = {
     "st", "dr", "mr", "mrs", "ms", "prof", "jr", "sr", "inc", "ltd", "co", "corp", "vs", "etc",
@@ -87,12 +115,20 @@ def is_valid(text: str, title: str) -> bool:
     """Si un recorte cumple los filtros tomados del análisis de EdClub."""
     if not text.endswith(".") or not ALLOWED.fullmatch(text):
         return False
-    if "may refer to" in text or text.count("(") != text.count(")"):
+    if "may refer to" in text or "(see " in text or text.count("(") != text.count(")") or text.count('"') % 2:
+        return False
+    if text.count("(") > MAX_PARENTHESES or LEFTOVERS.search(text):
+        return False
+    if SENSITIVE.search(text) or UNSUITABLE.search(text) or TECHNICAL.search(text):
+        return False
+    if not text[0].isupper() and text[0] not in "\"'":
         return False
     size = len(text)
     if sum(c.isupper() for c in text) / size > MAX_CAPITALS:
         return False
     if sum(not c.isalnum() and not c.isspace() for c in text) / size > MAX_PUNCTUATION:
+        return False
+    if sum(c.isdigit() for c in text) / size > MAX_DIGITS:
         return False
     sentences = split_sentences(text)
     if max(len(s.split()) for s in sentences) > MAX_WORDS_IN_SENTENCE:

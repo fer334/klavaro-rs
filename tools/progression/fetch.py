@@ -14,6 +14,7 @@ Escribe, dentro de la caché:
     lists/<página>.json     lista de artículos vitales tal como se bajó
     licenses.json           licencia que declara cada wiki
     articles/<wiki>.jsonl   un artículo o un título sin artículo por línea
+    views.json              visitas diarias (mediana de 60 días) de cada título de la lista
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from typing import Callable, Iterable
 HERE = Path(__file__).resolve().parent
 USER_AGENT = "klavaro-rs-text-fetch/0.1 (https://github.com/fer334/klavaro-rs)"
 BATCH_SIZE = 20  # Máximo de la API para `extracts` con `exintro`.
+VIEWS_BATCH_SIZE = 50  # Máximo de títulos por pedido de la API.
 PAUSE_SECONDS = 1.0
 MAX_ATTEMPTS = 6
 BACKOFF_SECONDS = 5.0
@@ -278,6 +280,56 @@ def fetch_wiki(
     return len(pending)
 
 
+def median_views(daily: dict) -> int:
+    """Mediana de las visitas diarias, sin contar los días sin dato."""
+    values = sorted(v for v in daily.values() if v is not None)
+    return values[len(values) // 2] if values else 0
+
+
+def fetch_views(client: Client, wiki: str, titles: list[str], cache: Path) -> dict[str, int]:
+    """Visitas de cada título, para preferir los temas que interesan a más gente. Se guarda
+    después de cada lote, así una descarga cortada se retoma."""
+    path = cache / "views.json"
+    views = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    pending = [title for title in titles if title not in views]
+    for start in range(0, len(pending), VIEWS_BATCH_SIZE):
+        chunk = pending[start : start + VIEWS_BATCH_SIZE]
+        renamed: dict[str, str] = {}
+        found: dict[str, int] = {}
+        continuation: dict[str, str] = {}
+        while True:
+            data = client.api(
+                wiki,
+                {
+                    "action": "query",
+                    "titles": "|".join(chunk),
+                    "redirects": "1",
+                    "prop": "pageviews",
+                    "pvipdays": "60",
+                    **continuation,
+                },
+            )
+            query = data.get("query", {})
+            for step in query.get("normalized", []) + query.get("redirects", []):
+                renamed[step["from"]] = step["to"]
+            for page in query.get("pages", []):
+                if page.get("pageviews"):
+                    found[page["title"]] = median_views(page["pageviews"])
+            continuation = data.get("continue", {})
+            if not continuation:
+                break
+        for title in chunk:
+            final = title
+            seen = set()
+            while final in renamed and final not in seen:
+                seen.add(final)
+                final = renamed[final]
+            views[title] = found.get(final, 0)
+        write_atomic(path, json.dumps(views, ensure_ascii=False, indent=0).encode("utf-8"))
+        print(f"visitas: {start + len(chunk)}/{len(pending)}", flush=True)
+    return views
+
+
 def run(client: Client, sources: dict, cache: Path, limit: int | None = None) -> None:
     """Baja la lista, las licencias y los artículos."""
     selected = vital_articles(client, sources, cache)
@@ -286,6 +338,7 @@ def run(client: Client, sources: dict, cache: Path, limit: int | None = None) ->
     print(f"{len(titles)} títulos en la lista", flush=True)
     for wiki in sources["wikis"]:
         fetch_wiki(client, wiki, titles, cache, licenses[wiki]["text"], limit)
+    fetch_views(client, sources["list_wiki"], titles, cache)
     write_atomic(
         cache / "selected.json", json.dumps(selected, ensure_ascii=False, indent=0).encode("utf-8")
     )

@@ -1,0 +1,2279 @@
+{
+ "approved": {
+  "20.1": {
+   "id": "simple-425",
+   "fingerprint": "629e43c3bb4c"
+  },
+  "20.2": {
+   "id": "simple-296",
+   "fingerprint": "16ded1f86227"
+  },
+  "20.3": {
+   "id": "simple-7240",
+   "fingerprint": "3495f66f09b2"
+  },
+  "20.4": {
+   "id": "simple-219",
+   "fingerprint": "71cf60e1dd81"
+  },
+  "20.5": {
+   "id": "simple-942",
+   "fingerprint": "6365e8693337"
+  },
+  "20.6": {
+   "id": "simple-42874",
+   "fingerprint": "4814f7fdab07"
+  },
+  "20.7": {
+   "id": "simple-3196",
+   "fingerprint": "bdbd0a96ed6e"
+  },
+  "20.8": {
+   "id": "simple-13149",
+   "fingerprint": "38abe77489cd"
+  },
+  "20.9": {
+   "id": "en-3778",
+   "fingerprint": "9e06a00e349b"
+  },
+  "20.10": {
+   "id": "simple-11274",
+   "fingerprint": "dc92595080a4"
+  },
+  "20.11": {
+   "id": "simple-700",
+   "fingerprint": "0cea00d5bef4"
+  },
+  "20.12": {
+   "id": "simple-20124",
+   "fingerprint": "115b2deeb15f"
+  },
+  "20.13": {
+   "id": "simple-13805",
+   "fingerprint": "89a59bf110ff"
+  },
+  "20.14": {
+   "id": "simple-8927",
+   "fingerprint": "585eef296928"
+  },
+  "20.15": {
+   "id": "simple-5316",
+   "fingerprint": "fbce84665feb"
+  },
+  "20.16": {
+   "id": "simple-60473",
+   "fingerprint": "8efdaec3a316"
+  },
+  "20.17": {
+   "id": "simple-144",
+   "fingerprint": "d91e41525caf"
+  },
+  "20.18": {
+   "id": "simple-234",
+   "fingerprint": "72f760dac5ce"
+  },
+  "20.19": {
+   "id": "simple-24154",
+   "fingerprint": "84d7da28d222"
+  },
+  "20.20": {
+   "id": "simple-11230",
+   "fingerprint": "fbf25558208c"
+  },
+  "20.21": {
+   "id": "simple-4329",
+   "fingerprint": "17b2fce46425"
+  },
+  "20.22": {
+   "id": "simple-255774",
+   "fingerprint": "d0030bac1b59"
+  },
+  "20.23": {
+   "id": "simple-2950",
+   "fingerprint": "77c4b9bd9f92"
+  },
+  "20.24": {
+   "id": "simple-187",
+   "fingerprint": "05c1fabe65f8"
+  },
+  "20.25": {
+   "id": "simple-14701",
+   "fingerprint": "eb781d2e7e75"
+  },
+  "20.26": {
+   "id": "simple-37295",
+   "fingerprint": "b4872174d34c"
+  },
+  "20.27": {
+   "id": "simple-3743",
+   "fingerprint": "d8ba493cc82a"
+  },
+  "20.28": {
+   "id": "simple-3349",
+   "fingerprint": "ebe7eea3d930"
+  },
+  "20.29": {
+   "id": "simple-336412",
+   "fingerprint": "efc21f8543ef"
+  },
+  "20.30": {
+   "id": "simple-9526",
+   "fingerprint": "0d25264f1558"
+  },
+  "25.1": {
+   "id": "simple-426",
+   "fingerprint": "5d2d6815c9c0"
+  },
+  "25.2": {
+   "id": "simple-1942",
+   "fingerprint": "5631cc82c78b"
+  },
+  "25.3": {
+   "id": "simple-8740",
+   "fingerprint": "eb8ac9479c48"
+  },
+  "25.4": {
+   "id": "simple-3887",
+   "fingerprint": "2657d4de9b74"
+  },
+  "25.5": {
+   "id": "simple-2816",
+   "fingerprint": "003441ee7d31"
+  },
+  "25.6": {
+   "id": "simple-590",
+   "fingerprint": "055ca611150e"
+  },
+  "25.7": {
+   "id": "simple-15232",
+   "fingerprint": "412fbaf50510"
+  },
+  "25.8": {
+   "id": "simple-597343",
+   "fingerprint": "b5c76da7d0bf"
+  },
+  "25.9": {
+   "id": "simple-19223",
+   "fingerprint": "ac7483f5b544"
+  },
+  "25.10": {
+   "id": "simple-45403",
+   "fingerprint": "9a045cadcbd9"
+  },
+  "25.11": {
+   "id": "simple-4900",
+   "fingerprint": "10dff9dc71b1"
+  },
+  "25.12": {
+   "id": "simple-38027",
+   "fingerprint": "af6b1a0384e3"
+  },
+  "25.13": {
+   "id": "simple-4362",
+   "fingerprint": "cd9b4635b998"
+  },
+  "25.14": {
+   "id": "simple-6642",
+   "fingerprint": "f33d641d5a35"
+  },
+  "25.15": {
+   "id": "simple-37721",
+   "fingerprint": "0c1628d51d10"
+  },
+  "25.16": {
+   "id": "simple-26891",
+   "fingerprint": "985fc87e6c0b"
+  },
+  "25.17": {
+   "id": "simple-2032",
+   "fingerprint": "a281683c06e8"
+  },
+  "25.18": {
+   "id": "simple-45",
+   "fingerprint": "1f0e76f4462a"
+  },
+  "25.19": {
+   "id": "simple-113793",
+   "fingerprint": "1d583f548502"
+  },
+  "25.20": {
+   "id": "simple-5892",
+   "fingerprint": "c041684537a5"
+  },
+  "25.21": {
+   "id": "simple-4442",
+   "fingerprint": "ba8553ce038f"
+  },
+  "25.22": {
+   "id": "simple-8382",
+   "fingerprint": "230a0e8e75e7"
+  },
+  "25.23": {
+   "id": "simple-18135",
+   "fingerprint": "6bb3102dd6d5"
+  },
+  "25.24": {
+   "id": "simple-1989",
+   "fingerprint": "fce192384f2e"
+  },
+  "25.25": {
+   "id": "simple-52871",
+   "fingerprint": "ff56a1e23c65"
+  },
+  "25.26": {
+   "id": "simple-10985",
+   "fingerprint": "66819eb6bf5c"
+  },
+  "25.27": {
+   "id": "simple-14506",
+   "fingerprint": "ca8639d7d12c"
+  },
+  "25.28": {
+   "id": "simple-219589",
+   "fingerprint": "35dc2378716e"
+  },
+  "25.29": {
+   "id": "simple-2041",
+   "fingerprint": "79c73698dab5"
+  },
+  "25.30": {
+   "id": "simple-911",
+   "fingerprint": "af9954041922"
+  },
+  "30.1": {
+   "id": "simple-3476",
+   "fingerprint": "4ea14f1cacc4"
+  },
+  "30.2": {
+   "id": "simple-4058",
+   "fingerprint": "151e8d7c732c"
+  },
+  "30.3": {
+   "id": "simple-5007",
+   "fingerprint": "d84aec41aa3a"
+  },
+  "30.4": {
+   "id": "simple-3284",
+   "fingerprint": "9fb3175f4fad"
+  },
+  "30.5": {
+   "id": "simple-57",
+   "fingerprint": "7fcd0d1844cd"
+  },
+  "30.6": {
+   "id": "simple-158772",
+   "fingerprint": "ba438a6efbf4"
+  },
+  "30.7": {
+   "id": "simple-14079",
+   "fingerprint": "96f4a3b0e19d"
+  },
+  "30.8": {
+   "id": "simple-4375",
+   "fingerprint": "1b9840b015a9"
+  },
+  "30.9": {
+   "id": "simple-108",
+   "fingerprint": "903a363347ac"
+  },
+  "30.10": {
+   "id": "simple-12758",
+   "fingerprint": "4000b2987559"
+  },
+  "30.11": {
+   "id": "simple-17184",
+   "fingerprint": "3fcae03233f7"
+  },
+  "30.12": {
+   "id": "simple-19401",
+   "fingerprint": "0b288bbd3e7f"
+  },
+  "30.13": {
+   "id": "simple-5110",
+   "fingerprint": "01b818d22772"
+  },
+  "30.14": {
+   "id": "simple-130418",
+   "fingerprint": "63de383f9a4b"
+  },
+  "30.15": {
+   "id": "en-6653",
+   "fingerprint": "00707f0d3700"
+  },
+  "30.16": {
+   "id": "simple-247",
+   "fingerprint": "82dca079c4ca"
+  },
+  "30.17": {
+   "id": "simple-10000",
+   "fingerprint": "9ff5a3bbad9a"
+  },
+  "30.18": {
+   "id": "simple-4475",
+   "fingerprint": "74a493b397b0"
+  },
+  "30.19": {
+   "id": "simple-78105",
+   "fingerprint": "414bc8049b22"
+  },
+  "30.20": {
+   "id": "en-14533",
+   "fingerprint": "14089a9ad45d"
+  },
+  "30.21": {
+   "id": "simple-437625",
+   "fingerprint": "80df31670c4c"
+  },
+  "30.22": {
+   "id": "simple-138154",
+   "fingerprint": "e951de8b44f6"
+  },
+  "30.23": {
+   "id": "simple-21348",
+   "fingerprint": "9a8ff65ffd41"
+  },
+  "30.24": {
+   "id": "simple-112539",
+   "fingerprint": "d0646b848940"
+  },
+  "30.25": {
+   "id": "simple-10484",
+   "fingerprint": "69f55e50bed4"
+  },
+  "30.26": {
+   "id": "simple-61277",
+   "fingerprint": "3c80c1976fe1"
+  },
+  "30.27": {
+   "id": "simple-847",
+   "fingerprint": "8b7831f38dc2"
+  },
+  "30.28": {
+   "id": "simple-8584",
+   "fingerprint": "2816b5ccb8af"
+  },
+  "30.29": {
+   "id": "simple-10754",
+   "fingerprint": "d167be492f61"
+  },
+  "30.30": {
+   "id": "simple-9088",
+   "fingerprint": "e3976d69bdfa"
+  },
+  "35.1": {
+   "id": "simple-858",
+   "fingerprint": "88793d1dd659"
+  },
+  "35.2": {
+   "id": "simple-2113",
+   "fingerprint": "3e1004a0330a"
+  },
+  "35.3": {
+   "id": "simple-2875",
+   "fingerprint": "1a99c27f0e73"
+  },
+  "35.4": {
+   "id": "simple-20961",
+   "fingerprint": "eed7786b4f06"
+  },
+  "35.5": {
+   "id": "simple-3528",
+   "fingerprint": "3e6a04863bfb"
+  },
+  "35.6": {
+   "id": "simple-646",
+   "fingerprint": "5468d5c0fe44"
+  },
+  "35.7": {
+   "id": "simple-43771",
+   "fingerprint": "34861f01d075"
+  },
+  "35.8": {
+   "id": "en-8551",
+   "fingerprint": "43bbb186ad1f"
+  },
+  "35.9": {
+   "id": "simple-46654",
+   "fingerprint": "8b32c3cf04d6"
+  },
+  "35.10": {
+   "id": "simple-3045",
+   "fingerprint": "171758d12d09"
+  },
+  "35.11": {
+   "id": "simple-4714",
+   "fingerprint": "361d786a92a1"
+  },
+  "35.12": {
+   "id": "simple-626",
+   "fingerprint": "bd11cad28160"
+  },
+  "35.13": {
+   "id": "simple-21240",
+   "fingerprint": "0f331d2a3bcb"
+  },
+  "35.14": {
+   "id": "simple-31600",
+   "fingerprint": "d765c110c010"
+  },
+  "35.15": {
+   "id": "simple-3440",
+   "fingerprint": "68ed174708a7"
+  },
+  "35.16": {
+   "id": "simple-41095",
+   "fingerprint": "16d289efe587"
+  },
+  "35.17": {
+   "id": "en-7089",
+   "fingerprint": "8d63a5334632"
+  },
+  "35.18": {
+   "id": "simple-51746",
+   "fingerprint": "754dde501303"
+  },
+  "35.19": {
+   "id": "en-19013",
+   "fingerprint": "f117d941ab0b"
+  },
+  "35.20": {
+   "id": "simple-18431",
+   "fingerprint": "ea801382e76f"
+  },
+  "35.21": {
+   "id": "simple-800",
+   "fingerprint": "e4d1fc746f95"
+  },
+  "35.22": {
+   "id": "simple-13173",
+   "fingerprint": "042578bff009"
+  },
+  "35.23": {
+   "id": "simple-472",
+   "fingerprint": "a6597a4189d4"
+  },
+  "35.24": {
+   "id": "simple-61327",
+   "fingerprint": "bc5d21d0478a"
+  },
+  "35.25": {
+   "id": "simple-216",
+   "fingerprint": "2a39f5cb0d7f"
+  },
+  "35.26": {
+   "id": "simple-13707",
+   "fingerprint": "c513cc9e0beb"
+  },
+  "35.27": {
+   "id": "en-445536",
+   "fingerprint": "707b4a3bafa5"
+  },
+  "35.28": {
+   "id": "simple-293",
+   "fingerprint": "d970ef421636"
+  },
+  "35.29": {
+   "id": "en-23666",
+   "fingerprint": "8450623ae0c5"
+  },
+  "35.30": {
+   "id": "simple-90766",
+   "fingerprint": "48e1d5818965"
+  },
+  "40.1": {
+   "id": "simple-4874",
+   "fingerprint": "f5ec9a23ddeb"
+  },
+  "40.2": {
+   "id": "simple-419",
+   "fingerprint": "f217a753aa82"
+  },
+  "40.3": {
+   "id": "simple-9714",
+   "fingerprint": "0c3a6b20b00e"
+  },
+  "40.4": {
+   "id": "simple-3870",
+   "fingerprint": "927c776f157f"
+  },
+  "40.5": {
+   "id": "simple-939",
+   "fingerprint": "82c0c8bc52c0"
+  },
+  "40.6": {
+   "id": "simple-56400",
+   "fingerprint": "4c3a7fb3866b"
+  },
+  "40.7": {
+   "id": "en-14400",
+   "fingerprint": "b2ba6dfd5ce0"
+  },
+  "40.8": {
+   "id": "en-25445",
+   "fingerprint": "b7b5f3851cbb"
+  },
+  "40.9": {
+   "id": "en-22938",
+   "fingerprint": "cb6868bc6f40"
+  },
+  "40.10": {
+   "id": "simple-9307",
+   "fingerprint": "f85d3ad67b11"
+  },
+  "40.11": {
+   "id": "simple-2127",
+   "fingerprint": "df5d60dfc873"
+  },
+  "40.12": {
+   "id": "simple-84115",
+   "fingerprint": "b1416e1ad09a"
+  },
+  "40.13": {
+   "id": "simple-13702",
+   "fingerprint": "114b6e05394f"
+  },
+  "40.14": {
+   "id": "en-25532",
+   "fingerprint": "af55c5003044"
+  },
+  "40.15": {
+   "id": "en-19653842",
+   "fingerprint": "5d3de1bd466c"
+  },
+  "40.16": {
+   "id": "en-32745",
+   "fingerprint": "24ce10de0ece"
+  },
+  "40.17": {
+   "id": "simple-7621",
+   "fingerprint": "69316eb9c99c"
+  },
+  "40.18": {
+   "id": "simple-18065",
+   "fingerprint": "a70046a958f4"
+  },
+  "40.19": {
+   "id": "simple-314162",
+   "fingerprint": "502b568de3de"
+  },
+  "40.20": {
+   "id": "simple-14058",
+   "fingerprint": "4e6fe3ed564e"
+  },
+  "40.21": {
+   "id": "en-15319",
+   "fingerprint": "5ed3a734c468"
+  },
+  "40.22": {
+   "id": "simple-62",
+   "fingerprint": "406a5e633a52"
+  },
+  "40.23": {
+   "id": "simple-7777",
+   "fingerprint": "366ff424405f"
+  },
+  "40.24": {
+   "id": "en-25391",
+   "fingerprint": "b499d4926654"
+  },
+  "40.25": {
+   "id": "simple-37242",
+   "fingerprint": "4cfabfe225dc"
+  },
+  "40.26": {
+   "id": "simple-107799",
+   "fingerprint": "e0e8b9299aac"
+  },
+  "40.27": {
+   "id": "en-18995",
+   "fingerprint": "6178eece7e4f"
+  },
+  "40.28": {
+   "id": "simple-7690",
+   "fingerprint": "5e06f74a129b"
+  },
+  "40.29": {
+   "id": "en-32977",
+   "fingerprint": "4663023f2e81"
+  },
+  "40.30": {
+   "id": "simple-5777",
+   "fingerprint": "6c5f44a60d88"
+  },
+  "45.1": {
+   "id": "simple-19033",
+   "fingerprint": "06723f318146"
+  },
+  "45.2": {
+   "id": "simple-22106",
+   "fingerprint": "b8efb9ac4498"
+  },
+  "45.3": {
+   "id": "simple-44408",
+   "fingerprint": "876fd6294edf"
+  },
+  "45.4": {
+   "id": "simple-24297",
+   "fingerprint": "43be96b88bce"
+  },
+  "45.5": {
+   "id": "simple-68251",
+   "fingerprint": "28fe843b0514"
+  },
+  "45.6": {
+   "id": "simple-29287",
+   "fingerprint": "f897d4aa33f1"
+  },
+  "45.7": {
+   "id": "simple-6204",
+   "fingerprint": "bda1d4235309"
+  },
+  "45.8": {
+   "id": "en-24619",
+   "fingerprint": "55272b7a04ad"
+  },
+  "45.9": {
+   "id": "en-22934",
+   "fingerprint": "63eef882ef6b"
+  },
+  "45.10": {
+   "id": "en-10623",
+   "fingerprint": "ba590be0a209"
+  },
+  "45.11": {
+   "id": "simple-250598",
+   "fingerprint": "3880dfbf0eb3"
+  },
+  "45.12": {
+   "id": "simple-15321",
+   "fingerprint": "80c6849b0187"
+  },
+  "45.13": {
+   "id": "simple-21768",
+   "fingerprint": "99f5fb394aee"
+  },
+  "45.14": {
+   "id": "simple-22109",
+   "fingerprint": "4185573669a7"
+  },
+  "45.15": {
+   "id": "simple-43746",
+   "fingerprint": "9de735b8b24a"
+  },
+  "45.16": {
+   "id": "simple-169888",
+   "fingerprint": "b84168d1e35b"
+  },
+  "45.17": {
+   "id": "en-3434750",
+   "fingerprint": "84bbbc2b364e"
+  },
+  "45.18": {
+   "id": "simple-246",
+   "fingerprint": "eaa5b5dc781f"
+  },
+  "45.19": {
+   "id": "simple-25665",
+   "fingerprint": "260478032237"
+  },
+  "45.20": {
+   "id": "simple-7163",
+   "fingerprint": "968022c07829"
+  },
+  "45.21": {
+   "id": "en-26714",
+   "fingerprint": "03914b949e16"
+  },
+  "45.22": {
+   "id": "simple-36431",
+   "fingerprint": "7e9747572e4b"
+  },
+  "45.23": {
+   "id": "simple-4964",
+   "fingerprint": "baabbeba6d56"
+  },
+  "45.24": {
+   "id": "simple-326890",
+   "fingerprint": "f37a9eef58fe"
+  },
+  "45.25": {
+   "id": "simple-100831",
+   "fingerprint": "3b48d6c6e11e"
+  },
+  "45.26": {
+   "id": "simple-29660",
+   "fingerprint": "d6f68752df5e"
+  },
+  "45.27": {
+   "id": "simple-12446",
+   "fingerprint": "0d80cb57e9c4"
+  },
+  "45.28": {
+   "id": "simple-16155",
+   "fingerprint": "dbeb4d812db9"
+  },
+  "45.29": {
+   "id": "simple-285",
+   "fingerprint": "238a20c9f900"
+  },
+  "45.30": {
+   "id": "simple-9476",
+   "fingerprint": "c615e16b6e24"
+  },
+  "50.1": {
+   "id": "simple-13593",
+   "fingerprint": "64ed4a07cbe0"
+  },
+  "50.2": {
+   "id": "en-22986",
+   "fingerprint": "0bd83ddd35ac"
+  },
+  "50.3": {
+   "id": "en-5999",
+   "fingerprint": "e3c1c355b2be"
+  },
+  "50.4": {
+   "id": "en-69123",
+   "fingerprint": "54c0fafa836d"
+  },
+  "50.5": {
+   "id": "simple-31527",
+   "fingerprint": "899be9fd5fc4"
+  },
+  "50.6": {
+   "id": "en-84632",
+   "fingerprint": "5df1689df7a0"
+  },
+  "50.7": {
+   "id": "en-9127632",
+   "fingerprint": "c85fb94b9e31"
+  },
+  "50.8": {
+   "id": "en-39388",
+   "fingerprint": "d427b40ff2d0"
+  },
+  "50.9": {
+   "id": "simple-5978",
+   "fingerprint": "7c9ee3730858"
+  },
+  "50.10": {
+   "id": "en-43854",
+   "fingerprint": "eee241f1d4d0"
+  },
+  "50.11": {
+   "id": "simple-699",
+   "fingerprint": "76789febf4c6"
+  },
+  "50.12": {
+   "id": "en-50650",
+   "fingerprint": "7df5dcebbd12"
+  },
+  "50.13": {
+   "id": "simple-5940",
+   "fingerprint": "948b3b848b90"
+  },
+  "50.14": {
+   "id": "simple-18589",
+   "fingerprint": "6be5d9a058f2"
+  },
+  "50.15": {
+   "id": "en-28002",
+   "fingerprint": "9a3f40d6a422"
+  },
+  "50.16": {
+   "id": "simple-11275",
+   "fingerprint": "5459827ae130"
+  },
+  "50.17": {
+   "id": "en-5405",
+   "fingerprint": "be5fc2680ade"
+  },
+  "50.18": {
+   "id": "en-28296",
+   "fingerprint": "a979953d200e"
+  },
+  "50.19": {
+   "id": "simple-43690",
+   "fingerprint": "5c8547d0bb1a"
+  },
+  "50.20": {
+   "id": "simple-7082",
+   "fingerprint": "2a2fdbc45a33"
+  },
+  "50.21": {
+   "id": "simple-23663",
+   "fingerprint": "baf188f40110"
+  },
+  "50.22": {
+   "id": "en-5371",
+   "fingerprint": "3ff620d17241"
+  },
+  "50.23": {
+   "id": "simple-9586",
+   "fingerprint": "bccb20bccce2"
+  },
+  "50.24": {
+   "id": "simple-339813",
+   "fingerprint": "5b0e37d23d21"
+  },
+  "50.25": {
+   "id": "en-12224",
+   "fingerprint": "acc066118eb1"
+  },
+  "50.26": {
+   "id": "simple-7136",
+   "fingerprint": "6d4a14d2979f"
+  },
+  "50.27": {
+   "id": "simple-38080",
+   "fingerprint": "39f4e2f83888"
+  },
+  "50.28": {
+   "id": "simple-15218",
+   "fingerprint": "7153d7e8e35d"
+  },
+  "50.29": {
+   "id": "simple-7199",
+   "fingerprint": "715a47870c2b"
+  },
+  "50.30": {
+   "id": "simple-25678",
+   "fingerprint": "45c7c0872a52"
+  },
+  "55.1": {
+   "id": "en-32927",
+   "fingerprint": "89590a496768"
+  },
+  "55.2": {
+   "id": "simple-8335",
+   "fingerprint": "900cf8667ead"
+  },
+  "55.3": {
+   "id": "simple-63151",
+   "fingerprint": "36575dc3e58c"
+  },
+  "55.4": {
+   "id": "simple-552",
+   "fingerprint": "30e63acca03a"
+  },
+  "55.5": {
+   "id": "en-1605200",
+   "fingerprint": "8685113a8ed7"
+  },
+  "55.6": {
+   "id": "en-14532",
+   "fingerprint": "d9c391af9671"
+  },
+  "55.7": {
+   "id": "simple-19412",
+   "fingerprint": "8d023cced86e"
+  },
+  "55.8": {
+   "id": "en-23996",
+   "fingerprint": "e2bce8ce9435"
+  },
+  "55.9": {
+   "id": "en-23053",
+   "fingerprint": "72bdcd5f4403"
+  },
+  "55.10": {
+   "id": "en-32603",
+   "fingerprint": "25f35586d9ec"
+  },
+  "55.11": {
+   "id": "simple-114053",
+   "fingerprint": "f6ea0fb168f2"
+  },
+  "55.12": {
+   "id": "simple-124549",
+   "fingerprint": "a9dd5d387cf3"
+  },
+  "55.13": {
+   "id": "en-38857",
+   "fingerprint": "5b00eae15086"
+  },
+  "55.14": {
+   "id": "en-983",
+   "fingerprint": "18ad5d1f5d39"
+  },
+  "55.15": {
+   "id": "en-52911",
+   "fingerprint": "162f320093a8"
+  },
+  "55.16": {
+   "id": "simple-4549",
+   "fingerprint": "555d61cf8ca7"
+  },
+  "55.17": {
+   "id": "simple-24914",
+   "fingerprint": "2be4273ec714"
+  },
+  "55.18": {
+   "id": "en-29219",
+   "fingerprint": "bb22a342bf66"
+  },
+  "55.19": {
+   "id": "en-6037917",
+   "fingerprint": "f2b475046e7d"
+  },
+  "55.20": {
+   "id": "en-19728",
+   "fingerprint": "3382fae9ce41"
+  },
+  "55.21": {
+   "id": "simple-3684",
+   "fingerprint": "a0fb3e8e5763"
+  },
+  "55.22": {
+   "id": "simple-19403",
+   "fingerprint": "e2a7f1da22bf"
+  },
+  "55.23": {
+   "id": "simple-44964",
+   "fingerprint": "45518db46e49"
+  },
+  "55.24": {
+   "id": "simple-8568",
+   "fingerprint": "feccdb152865"
+  },
+  "55.25": {
+   "id": "en-19568",
+   "fingerprint": "b69c0da0c743"
+  },
+  "55.26": {
+   "id": "en-23915",
+   "fingerprint": "6fad671f73f0"
+  },
+  "55.27": {
+   "id": "en-30128",
+   "fingerprint": "6243bcb4ea44"
+  },
+  "55.28": {
+   "id": "simple-3886",
+   "fingerprint": "f1d4c395b16e"
+  },
+  "55.29": {
+   "id": "simple-23677",
+   "fingerprint": "ee3137691ce2"
+  },
+  "55.30": {
+   "id": "en-32558",
+   "fingerprint": "6dd47bfeeee3"
+  },
+  "60.1": {
+   "id": "simple-14829",
+   "fingerprint": "12611e4782d0"
+  },
+  "60.2": {
+   "id": "simple-94232",
+   "fingerprint": "f0d3f3200d3f"
+  },
+  "60.3": {
+   "id": "simple-502310",
+   "fingerprint": "24f220da0a68"
+  },
+  "60.4": {
+   "id": "simple-2911",
+   "fingerprint": "9c0fa6378465"
+  },
+  "60.5": {
+   "id": "simple-602643",
+   "fingerprint": "51f47610903d"
+  },
+  "60.6": {
+   "id": "en-19877",
+   "fingerprint": "98ef8964fb08"
+  },
+  "60.7": {
+   "id": "simple-16146",
+   "fingerprint": "188838778d49"
+  },
+  "60.8": {
+   "id": "simple-558",
+   "fingerprint": "451736d9c4a5"
+  },
+  "60.9": {
+   "id": "simple-7709",
+   "fingerprint": "48380d0509e0"
+  },
+  "60.10": {
+   "id": "simple-856",
+   "fingerprint": "3df242118e33"
+  },
+  "60.11": {
+   "id": "en-228344",
+   "fingerprint": "da5bf3abfc47"
+  },
+  "60.12": {
+   "id": "en-54211",
+   "fingerprint": "74124e1a2119"
+  },
+  "60.13": {
+   "id": "en-21296224",
+   "fingerprint": "160e58b19ff6"
+  },
+  "60.14": {
+   "id": "en-25459",
+   "fingerprint": "c832a2a79289"
+  },
+  "60.15": {
+   "id": "en-17727",
+   "fingerprint": "e179c37d5103"
+  },
+  "60.16": {
+   "id": "en-27358",
+   "fingerprint": "737151ed2a20"
+  },
+  "60.17": {
+   "id": "simple-6222",
+   "fingerprint": "3a9c6c33af98"
+  },
+  "60.18": {
+   "id": "simple-8199",
+   "fingerprint": "9f2710ec9b18"
+  },
+  "60.19": {
+   "id": "simple-31687",
+   "fingerprint": "31a0a3ee8914"
+  },
+  "60.20": {
+   "id": "simple-812494",
+   "fingerprint": "c6f18bebf6f2"
+  },
+  "60.21": {
+   "id": "simple-7790",
+   "fingerprint": "90789207345c"
+  },
+  "60.22": {
+   "id": "en-64971",
+   "fingerprint": "a5a1f989bdb9"
+  },
+  "60.23": {
+   "id": "simple-5010",
+   "fingerprint": "8acf1886c095"
+  },
+  "60.24": {
+   "id": "en-964617",
+   "fingerprint": "2216c14a7a75"
+  },
+  "60.25": {
+   "id": "simple-97969",
+   "fingerprint": "d82111a384a9"
+  },
+  "60.26": {
+   "id": "en-13831",
+   "fingerprint": "ed019c5d78fd"
+  },
+  "60.27": {
+   "id": "simple-179557",
+   "fingerprint": "1691c5665563"
+  },
+  "60.28": {
+   "id": "simple-158",
+   "fingerprint": "e0b07cdd88b3"
+  },
+  "60.29": {
+   "id": "simple-8525",
+   "fingerprint": "34eeb8581486"
+  },
+  "60.30": {
+   "id": "simple-29089",
+   "fingerprint": "5523c7529db8"
+  },
+  "65.1": {
+   "id": "en-24388",
+   "fingerprint": "096517bb5bde"
+  },
+  "65.2": {
+   "id": "simple-13384",
+   "fingerprint": "a45de9ddef90"
+  },
+  "65.3": {
+   "id": "en-46426065",
+   "fingerprint": "1b8b8047302a"
+  },
+  "65.4": {
+   "id": "simple-3794",
+   "fingerprint": "c538fddc9355"
+  },
+  "65.5": {
+   "id": "en-20611385",
+   "fingerprint": "85a4a87a0761"
+  },
+  "65.6": {
+   "id": "simple-9505",
+   "fingerprint": "15ac6d73991a"
+  },
+  "65.7": {
+   "id": "simple-9185",
+   "fingerprint": "78966dafa2fc"
+  },
+  "65.8": {
+   "id": "simple-18863",
+   "fingerprint": "438bc67cc346"
+  },
+  "65.9": {
+   "id": "simple-146762",
+   "fingerprint": "ebe871c1a38a"
+  },
+  "65.10": {
+   "id": "en-26779",
+   "fingerprint": "59225d570a25"
+  },
+  "65.11": {
+   "id": "en-34340",
+   "fingerprint": "adef80c68727"
+  },
+  "65.12": {
+   "id": "en-18955999",
+   "fingerprint": "c4e1b3278182"
+  },
+  "65.13": {
+   "id": "simple-23668",
+   "fingerprint": "92169c706055"
+  },
+  "65.14": {
+   "id": "en-904",
+   "fingerprint": "74d4e546983d"
+  },
+  "65.15": {
+   "id": "en-19167679",
+   "fingerprint": "7542e8219afc"
+  },
+  "65.16": {
+   "id": "en-22153",
+   "fingerprint": "4e565cf24668"
+  },
+  "65.17": {
+   "id": "en-800",
+   "fingerprint": "ebedba3df51f"
+  },
+  "65.18": {
+   "id": "simple-102329",
+   "fingerprint": "bf42988df6b2"
+  },
+  "65.19": {
+   "id": "en-54253",
+   "fingerprint": "6ffe57e6d21b"
+  },
+  "65.20": {
+   "id": "en-44940",
+   "fingerprint": "071d5322a163"
+  },
+  "65.21": {
+   "id": "en-184854",
+   "fingerprint": "1e078ea5eb7b"
+  },
+  "65.22": {
+   "id": "simple-55907",
+   "fingerprint": "26595271c972"
+  },
+  "65.23": {
+   "id": "en-21690",
+   "fingerprint": "327228767ab3"
+  },
+  "65.24": {
+   "id": "simple-3707",
+   "fingerprint": "d86e14a862a5"
+  },
+  "65.25": {
+   "id": "en-803",
+   "fingerprint": "509eca71481f"
+  },
+  "65.26": {
+   "id": "en-22413",
+   "fingerprint": "d681ab86e96d"
+  },
+  "65.27": {
+   "id": "simple-25730",
+   "fingerprint": "bb7c8c12df44"
+  },
+  "65.28": {
+   "id": "simple-126274",
+   "fingerprint": "5d4f9412cb60"
+  },
+  "65.29": {
+   "id": "simple-5300",
+   "fingerprint": "779949af97f6"
+  },
+  "65.30": {
+   "id": "simple-21914",
+   "fingerprint": "1be360dd2115"
+  },
+  "70.1": {
+   "id": "simple-46449",
+   "fingerprint": "7924e4543322"
+  },
+  "70.2": {
+   "id": "en-5177",
+   "fingerprint": "d5072e5c7150"
+  },
+  "70.3": {
+   "id": "en-53509",
+   "fingerprint": "ffaead5ac953"
+  },
+  "70.4": {
+   "id": "simple-21448",
+   "fingerprint": "1d0cef209c02"
+  },
+  "70.5": {
+   "id": "en-30001",
+   "fingerprint": "66d6e1ddfa5e"
+  },
+  "70.6": {
+   "id": "simple-23322",
+   "fingerprint": "5c8d1e801ccc"
+  },
+  "70.7": {
+   "id": "en-13212",
+   "fingerprint": "22834e6be4de"
+  },
+  "70.8": {
+   "id": "en-26573",
+   "fingerprint": "63873543b96d"
+  },
+  "70.9": {
+   "id": "en-61344",
+   "fingerprint": "81c3c3eb2b76"
+  },
+  "70.10": {
+   "id": "simple-265927",
+   "fingerprint": "067265defd9d"
+  },
+  "70.11": {
+   "id": "simple-6090",
+   "fingerprint": "62779ad47a1f"
+  },
+  "70.12": {
+   "id": "en-6822",
+   "fingerprint": "cac97ce0c122"
+  },
+  "70.13": {
+   "id": "simple-69431",
+   "fingerprint": "e3c7674dcd76"
+  },
+  "70.14": {
+   "id": "simple-884",
+   "fingerprint": "9964e137f793"
+  },
+  "70.15": {
+   "id": "en-29812",
+   "fingerprint": "127dd91afd8c"
+  },
+  "70.16": {
+   "id": "en-9258",
+   "fingerprint": "14ba4c058379"
+  },
+  "70.17": {
+   "id": "simple-29710",
+   "fingerprint": "8b06ed212c60"
+  },
+  "70.18": {
+   "id": "en-29560452",
+   "fingerprint": "3c6e8c104d8b"
+  },
+  "70.19": {
+   "id": "en-23440",
+   "fingerprint": "ad51646473c3"
+  },
+  "70.20": {
+   "id": "simple-2991",
+   "fingerprint": "d7f1998fd956"
+  },
+  "70.21": {
+   "id": "simple-314",
+   "fingerprint": "efa1a89717fe"
+  },
+  "70.22": {
+   "id": "en-4329",
+   "fingerprint": "89bd7110b9d5"
+  },
+  "70.23": {
+   "id": "en-37402",
+   "fingerprint": "b5223e6ab8f3"
+  },
+  "70.24": {
+   "id": "en-33555",
+   "fingerprint": "b0086b2b4fcf"
+  },
+  "70.25": {
+   "id": "en-20663625",
+   "fingerprint": "8518c3537dc8"
+  },
+  "70.26": {
+   "id": "simple-14187",
+   "fingerprint": "ce96d1d02b54"
+  },
+  "70.27": {
+   "id": "en-28272",
+   "fingerprint": "56e0dd5a156e"
+  },
+  "70.28": {
+   "id": "en-627",
+   "fingerprint": "02d44b4f6866"
+  },
+  "70.29": {
+   "id": "en-18449273",
+   "fingerprint": "abcaf67d58a0"
+  },
+  "70.30": {
+   "id": "simple-55499",
+   "fingerprint": "e1667a90edf0"
+  },
+  "75.1": {
+   "id": "simple-67057",
+   "fingerprint": "cf51eb7b3d2b"
+  },
+  "75.2": {
+   "id": "en-5323",
+   "fingerprint": "a195657aae9d"
+  },
+  "75.3": {
+   "id": "simple-54345",
+   "fingerprint": "188c5f0d5f73"
+  },
+  "75.4": {
+   "id": "en-1786",
+   "fingerprint": "27153621dc5c"
+  },
+  "75.5": {
+   "id": "en-56822861",
+   "fingerprint": "6585ce268f01"
+  },
+  "75.6": {
+   "id": "simple-50194",
+   "fingerprint": "669e77672feb"
+  },
+  "75.7": {
+   "id": "en-13404",
+   "fingerprint": "be45c5c6e3c9"
+  },
+  "75.8": {
+   "id": "en-32512",
+   "fingerprint": "f4849e7704cc"
+  },
+  "75.9": {
+   "id": "en-145443",
+   "fingerprint": "4dd37ec54a62"
+  },
+  "75.10": {
+   "id": "simple-41100",
+   "fingerprint": "8b49dcded6bf"
+  },
+  "75.11": {
+   "id": "en-5987",
+   "fingerprint": "dcbc69abc630"
+  },
+  "75.12": {
+   "id": "simple-30875",
+   "fingerprint": "f50bae73e48a"
+  },
+  "75.13": {
+   "id": "en-15624",
+   "fingerprint": "3c2dd21d5b0c"
+  },
+  "75.14": {
+   "id": "simple-213374",
+   "fingerprint": "7b084c7a5b11"
+  },
+  "75.15": {
+   "id": "en-44475",
+   "fingerprint": "af0fff74def9"
+  },
+  "75.16": {
+   "id": "en-177648",
+   "fingerprint": "86fa8372f567"
+  },
+  "75.17": {
+   "id": "en-22915",
+   "fingerprint": "234abe52b733"
+  },
+  "75.18": {
+   "id": "en-6121",
+   "fingerprint": "b58b0cdef568"
+  },
+  "75.19": {
+   "id": "simple-50701",
+   "fingerprint": "e0484879c189"
+  },
+  "75.20": {
+   "id": "simple-14265",
+   "fingerprint": "821073bdf8be"
+  },
+  "75.21": {
+   "id": "en-19714",
+   "fingerprint": "e4f661f5a37f"
+  },
+  "75.22": {
+   "id": "en-28288",
+   "fingerprint": "0bd434c24d2b"
+  },
+  "75.23": {
+   "id": "en-18866",
+   "fingerprint": "7d91d0d1dd0e"
+  },
+  "75.24": {
+   "id": "en-17914",
+   "fingerprint": "8033fa99aac8"
+  },
+  "75.25": {
+   "id": "en-44723",
+   "fingerprint": "936a798e51e9"
+  },
+  "75.26": {
+   "id": "en-5664",
+   "fingerprint": "97c4953d1303"
+  },
+  "75.27": {
+   "id": "en-26897",
+   "fingerprint": "8c57284a1fed"
+  },
+  "75.28": {
+   "id": "en-27008",
+   "fingerprint": "136611f5ee70"
+  },
+  "75.29": {
+   "id": "en-52135",
+   "fingerprint": "524fc369dd15"
+  },
+  "75.30": {
+   "id": "en-951",
+   "fingerprint": "7ee1f27074c3"
+  },
+  "80.1": {
+   "id": "simple-32062",
+   "fingerprint": "d530c7f6f58b"
+  },
+  "80.2": {
+   "id": "en-18957",
+   "fingerprint": "67f25663a23c"
+  },
+  "80.3": {
+   "id": "en-202898",
+   "fingerprint": "f4599246cc3a"
+  },
+  "80.4": {
+   "id": "en-169409",
+   "fingerprint": "4b3f1df5c29e"
+  },
+  "80.5": {
+   "id": "en-10834",
+   "fingerprint": "134bcf215242"
+  },
+  "80.6": {
+   "id": "en-593",
+   "fingerprint": "ac63c4e2338d"
+  },
+  "80.7": {
+   "id": "en-17615",
+   "fingerprint": "86c855a6f321"
+  },
+  "80.8": {
+   "id": "simple-7476",
+   "fingerprint": "04a0127c7218"
+  },
+  "80.9": {
+   "id": "simple-18897",
+   "fingerprint": "e438aa984a58"
+  },
+  "80.10": {
+   "id": "en-46817",
+   "fingerprint": "c03654d3a7df"
+  },
+  "80.11": {
+   "id": "en-6678",
+   "fingerprint": "8d62d7f5a29c"
+  },
+  "80.12": {
+   "id": "simple-47344",
+   "fingerprint": "b355e1806b64"
+  },
+  "80.13": {
+   "id": "en-21241",
+   "fingerprint": "583f2087e0af"
+  },
+  "80.14": {
+   "id": "en-9588",
+   "fingerprint": "22c0026c823d"
+  },
+  "80.15": {
+   "id": "en-51892",
+   "fingerprint": "7e684ffc0e62"
+  },
+  "80.16": {
+   "id": "en-38180",
+   "fingerprint": "3116df4209aa"
+  },
+  "80.17": {
+   "id": "en-43206",
+   "fingerprint": "e65e1cc08deb"
+  },
+  "80.18": {
+   "id": "en-18978754",
+   "fingerprint": "00e42bd80e44"
+  },
+  "80.19": {
+   "id": "en-11749910",
+   "fingerprint": "bd210853e7db"
+  },
+  "80.20": {
+   "id": "en-32231",
+   "fingerprint": "a939a4aee3f2"
+  },
+  "80.21": {
+   "id": "en-14539",
+   "fingerprint": "c5528dbfda81"
+  },
+  "80.22": {
+   "id": "en-392192",
+   "fingerprint": "2a7b0ff0ed35"
+  },
+  "80.23": {
+   "id": "simple-4635",
+   "fingerprint": "9dc71c6ad7d0"
+  },
+  "80.24": {
+   "id": "en-46883",
+   "fingerprint": "667e01a8c469"
+  },
+  "80.25": {
+   "id": "en-20505",
+   "fingerprint": "07d9b048b746"
+  },
+  "80.26": {
+   "id": "simple-2081",
+   "fingerprint": "704b3f3b9d22"
+  },
+  "80.27": {
+   "id": "en-18567210",
+   "fingerprint": "ad2fd6af8ab9"
+  },
+  "80.28": {
+   "id": "simple-4017",
+   "fingerprint": "54cfb38117f3"
+  },
+  "80.29": {
+   "id": "en-44785",
+   "fingerprint": "8ec5f281aebf"
+  },
+  "80.30": {
+   "id": "en-21019",
+   "fingerprint": "cd96c880e6be"
+  },
+  "85.1": {
+   "id": "en-10646",
+   "fingerprint": "cb717836f104"
+  },
+  "85.2": {
+   "id": "en-18994087",
+   "fingerprint": "e2623f5c9f3f"
+  },
+  "85.3": {
+   "id": "en-43357",
+   "fingerprint": "a8bfd61d4eeb"
+  },
+  "85.4": {
+   "id": "en-12266",
+   "fingerprint": "a80edef35320"
+  },
+  "85.5": {
+   "id": "en-2917649",
+   "fingerprint": "024e858639e5"
+  },
+  "85.6": {
+   "id": "en-53418",
+   "fingerprint": "b7b43cc90f62"
+  },
+  "85.7": {
+   "id": "en-18940",
+   "fingerprint": "82b1172d9056"
+  },
+  "85.8": {
+   "id": "en-24390",
+   "fingerprint": "5b1e5801e6de"
+  },
+  "85.9": {
+   "id": "simple-63537",
+   "fingerprint": "c28e2cec1ac5"
+  },
+  "85.10": {
+   "id": "simple-258029",
+   "fingerprint": "552d77f9b6b4"
+  },
+  "85.11": {
+   "id": "en-19179331",
+   "fingerprint": "e8d17d8ab8a3"
+  },
+  "85.12": {
+   "id": "en-33139",
+   "fingerprint": "9e86558addec"
+  },
+  "85.13": {
+   "id": "simple-64582",
+   "fingerprint": "bd646b83163d"
+  },
+  "85.14": {
+   "id": "en-27683",
+   "fingerprint": "71b7ea5fb31c"
+  },
+  "85.15": {
+   "id": "en-26810",
+   "fingerprint": "d9e04ce789b3"
+  },
+  "85.16": {
+   "id": "en-12",
+   "fingerprint": "6996e63d0614"
+  },
+  "85.17": {
+   "id": "en-8209",
+   "fingerprint": "7216d611ee56"
+  },
+  "85.18": {
+   "id": "simple-76787",
+   "fingerprint": "26805adb0cb4"
+  },
+  "85.19": {
+   "id": "en-48139",
+   "fingerprint": "c630f258660a"
+  },
+  "85.20": {
+   "id": "en-5623",
+   "fingerprint": "647c620c564e"
+  },
+  "85.21": {
+   "id": "en-80356",
+   "fingerprint": "1150783fc155"
+  },
+  "85.22": {
+   "id": "en-604727",
+   "fingerprint": "269c68a52507"
+  },
+  "85.23": {
+   "id": "en-36858",
+   "fingerprint": "1ad76b270e5c"
+  },
+  "85.24": {
+   "id": "en-5671",
+   "fingerprint": "fc035ed7d449"
+  },
+  "85.25": {
+   "id": "en-43551",
+   "fingerprint": "b7f62d75b18f"
+  },
+  "85.26": {
+   "id": "en-18838",
+   "fingerprint": "428a783966f1"
+  },
+  "85.27": {
+   "id": "en-17276",
+   "fingerprint": "373fadd2fe79"
+  },
+  "85.28": {
+   "id": "en-21201",
+   "fingerprint": "c783c9b873bd"
+  },
+  "85.29": {
+   "id": "en-21476593",
+   "fingerprint": "d7b1ba0ec08b"
+  },
+  "85.30": {
+   "id": "simple-44095",
+   "fingerprint": "61539af55859"
+  },
+  "90.1": {
+   "id": "en-68672",
+   "fingerprint": "cdfbcf277f7f"
+  },
+  "90.2": {
+   "id": "en-849",
+   "fingerprint": "9a35e85d597d"
+  },
+  "90.3": {
+   "id": "en-4637590",
+   "fingerprint": "c90eaec55234"
+  },
+  "90.4": {
+   "id": "en-31392",
+   "fingerprint": "ec35afc57fa7"
+  },
+  "90.5": {
+   "id": "en-177602",
+   "fingerprint": "1ffe9f5bbc61"
+  },
+  "90.6": {
+   "id": "en-7923",
+   "fingerprint": "227e85ed4796"
+  },
+  "90.7": {
+   "id": "simple-5675",
+   "fingerprint": "98c7a85f8562"
+  },
+  "90.8": {
+   "id": "en-28332898",
+   "fingerprint": "2c2b30468c69"
+  },
+  "90.9": {
+   "id": "en-1182",
+   "fingerprint": "19bc99bb3bf6"
+  },
+  "90.10": {
+   "id": "en-164328",
+   "fingerprint": "4b87ef66d69a"
+  },
+  "90.11": {
+   "id": "en-25676",
+   "fingerprint": "39667f30303b"
+  },
+  "90.12": {
+   "id": "simple-2161",
+   "fingerprint": "62dd46c1c8c7"
+  },
+  "90.13": {
+   "id": "en-33173",
+   "fingerprint": "394b735a8ef9"
+  },
+  "90.14": {
+   "id": "en-4269567",
+   "fingerprint": "6ceddf338c8f"
+  },
+  "90.15": {
+   "id": "en-27009",
+   "fingerprint": "e651bcdced5a"
+  },
+  "90.16": {
+   "id": "en-430134",
+   "fingerprint": "09ec18acf992"
+  },
+  "90.17": {
+   "id": "en-15487",
+   "fingerprint": "1fd969161556"
+  },
+  "90.18": {
+   "id": "en-60827",
+   "fingerprint": "ca7256e2f713"
+  },
+  "90.19": {
+   "id": "en-28260",
+   "fingerprint": "60f504db525b"
+  },
+  "90.20": {
+   "id": "en-21197",
+   "fingerprint": "7e34674a1768"
+  },
+  "90.21": {
+   "id": "en-19224834",
+   "fingerprint": "d8fde278dc05"
+  },
+  "90.22": {
+   "id": "en-61701",
+   "fingerprint": "833dbb88bc38"
+  },
+  "90.23": {
+   "id": "simple-834704",
+   "fingerprint": "4563ab3ae6b8"
+  },
+  "90.24": {
+   "id": "en-314994",
+   "fingerprint": "e7db1fb46684"
+  },
+  "90.25": {
+   "id": "en-42139",
+   "fingerprint": "65190aad2642"
+  },
+  "90.26": {
+   "id": "en-34076091",
+   "fingerprint": "cbe2bde54255"
+  },
+  "90.27": {
+   "id": "simple-24028",
+   "fingerprint": "0624c727d418"
+  },
+  "90.28": {
+   "id": "en-4335",
+   "fingerprint": "e8ff0a15ffd3"
+  },
+  "90.29": {
+   "id": "en-4650",
+   "fingerprint": "24d2d1397969"
+  },
+  "90.30": {
+   "id": "en-22576",
+   "fingerprint": "843b3618c9d9"
+  },
+  "95.1": {
+   "id": "en-58921",
+   "fingerprint": "96bd3c3ddbf3"
+  },
+  "95.2": {
+   "id": "en-29778",
+   "fingerprint": "199682c4a7e3"
+  },
+  "95.3": {
+   "id": "en-5043734",
+   "fingerprint": "3e688a5ae9a6"
+  },
+  "95.4": {
+   "id": "en-18362",
+   "fingerprint": "20a96be15e51"
+  },
+  "95.5": {
+   "id": "en-1616492",
+   "fingerprint": "1d77db1494a7"
+  },
+  "95.6": {
+   "id": "en-44883",
+   "fingerprint": "6aaa696d4c8b"
+  },
+  "95.7": {
+   "id": "en-149689",
+   "fingerprint": "d7b51fb590c1"
+  },
+  "95.8": {
+   "id": "en-249116",
+   "fingerprint": "70422a518b94"
+  },
+  "95.9": {
+   "id": "en-177680",
+   "fingerprint": "af7f475f9c85"
+  },
+  "95.10": {
+   "id": "en-66556",
+   "fingerprint": "73de51c67661"
+  },
+  "95.11": {
+   "id": "en-90007",
+   "fingerprint": "45c0a01f80e2"
+  },
+  "95.12": {
+   "id": "en-13873779",
+   "fingerprint": "0e9fe598368a"
+  },
+  "95.13": {
+   "id": "en-6597",
+   "fingerprint": "78b2b79ebef6"
+  },
+  "95.14": {
+   "id": "en-29838",
+   "fingerprint": "e8450573ada9"
+  },
+  "95.15": {
+   "id": "en-27058",
+   "fingerprint": "f23216a76331"
+  },
+  "95.16": {
+   "id": "en-19876",
+   "fingerprint": "2c49639e2cdc"
+  },
+  "95.17": {
+   "id": "en-3722",
+   "fingerprint": "62dd87d2d6c7"
+  },
+  "95.18": {
+   "id": "en-197615",
+   "fingerprint": "ddebfc315e22"
+  },
+  "95.19": {
+   "id": "en-1092923",
+   "fingerprint": "024b0482177d"
+  },
+  "95.20": {
+   "id": "en-53332",
+   "fingerprint": "b98c2f815540"
+  },
+  "95.21": {
+   "id": "en-19329783",
+   "fingerprint": "5359f1fdc89c"
+  },
+  "95.22": {
+   "id": "en-856",
+   "fingerprint": "0f49ff89e009"
+  },
+  "95.23": {
+   "id": "en-34035",
+   "fingerprint": "97696c05889f"
+  },
+  "95.24": {
+   "id": "en-18890",
+   "fingerprint": "172b7e672538"
+  },
+  "95.25": {
+   "id": "en-22112840",
+   "fingerprint": "33d95e2217d0"
+  },
+  "95.26": {
+   "id": "en-14254",
+   "fingerprint": "b04b312e8a25"
+  },
+  "95.27": {
+   "id": "en-1490376",
+   "fingerprint": "ffc01a58a69f"
+  },
+  "95.28": {
+   "id": "en-16861908",
+   "fingerprint": "b69a72156b4a"
+  },
+  "95.29": {
+   "id": "en-30035",
+   "fingerprint": "cf749e049c9b"
+  },
+  "95.30": {
+   "id": "en-100191",
+   "fingerprint": "8dea857e6529"
+  },
+  "100.1": {
+   "id": "en-261925",
+   "fingerprint": "3a7f1942b1ae"
+  },
+  "100.2": {
+   "id": "en-21231",
+   "fingerprint": "f624f18c96be"
+  },
+  "100.3": {
+   "id": "en-48064",
+   "fingerprint": "753794080bd7"
+  },
+  "100.4": {
+   "id": "en-7529378",
+   "fingerprint": "3bf865679dbd"
+  },
+  "100.5": {
+   "id": "en-6021",
+   "fingerprint": "8e5ba877df42"
+  },
+  "100.6": {
+   "id": "en-29469",
+   "fingerprint": "f0480c4c9ad4"
+  },
+  "100.7": {
+   "id": "en-156861",
+   "fingerprint": "1aae328d1def"
+  },
+  "100.8": {
+   "id": "simple-26432",
+   "fingerprint": "0654ad748c87"
+  },
+  "100.9": {
+   "id": "en-55313",
+   "fingerprint": "1ab4483d5f28"
+  },
+  "100.10": {
+   "id": "en-15604",
+   "fingerprint": "812cafcefe3e"
+  },
+  "100.11": {
+   "id": "en-32005855",
+   "fingerprint": "4f077767a70d"
+  },
+  "100.12": {
+   "id": "en-5823",
+   "fingerprint": "641dcd103ef9"
+  },
+  "100.13": {
+   "id": "simple-127323",
+   "fingerprint": "3e730deb1f3d"
+  },
+  "100.14": {
+   "id": "en-9954",
+   "fingerprint": "f56d3f65772c"
+  },
+  "100.15": {
+   "id": "simple-26103",
+   "fingerprint": "cfd51b68f002"
+  },
+  "100.16": {
+   "id": "en-500560",
+   "fingerprint": "8d3e79bc6319"
+  },
+  "100.17": {
+   "id": "en-12730",
+   "fingerprint": "e83bb620b4a8"
+  },
+  "100.18": {
+   "id": "en-21664",
+   "fingerprint": "ba129982fc02"
+  },
+  "100.19": {
+   "id": "en-221923",
+   "fingerprint": "e6956af904fa"
+  },
+  "100.20": {
+   "id": "en-8613983",
+   "fingerprint": "61438e62c4dd"
+  },
+  "100.21": {
+   "id": "en-57169",
+   "fingerprint": "d006ad9ea00d"
+  },
+  "100.22": {
+   "id": "en-186495",
+   "fingerprint": "62b426ba52a3"
+  },
+  "100.23": {
+   "id": "en-735092",
+   "fingerprint": "402af8b9c2a2"
+  },
+  "100.24": {
+   "id": "en-276872",
+   "fingerprint": "31810ee5058a"
+  },
+  "100.25": {
+   "id": "en-30984",
+   "fingerprint": "b64b3351096e"
+  },
+  "100.26": {
+   "id": "en-22460",
+   "fingerprint": "949114bc6df1"
+  },
+  "100.27": {
+   "id": "en-55064",
+   "fingerprint": "b0d085009b0d"
+  },
+  "100.28": {
+   "id": "en-9225497",
+   "fingerprint": "8c5253e70bef"
+  },
+  "100.29": {
+   "id": "en-16743",
+   "fingerprint": "b3c137516cb8"
+  },
+  "100.30": {
+   "id": "en-8282374",
+   "fingerprint": "bcc94666308d"
+  }
+ },
+ "rejected": {
+  "simple-5504": "tono",
+  "simple-3997": "tema",
+  "simple-8502": "mal recorte",
+  "simple-209": "tema",
+  "simple-66217": "mal recorte",
+  "simple-283154": "redacción",
+  "en-12229": "redacción",
+  "simple-4115": "redacción",
+  "simple-5976": "tema",
+  "simple-25297": "comillas sin cerrar",
+  "simple-50759": "error tipográfico",
+  "simple-1237972": "redacción",
+  "simple-13888": "redacción",
+  "simple-67589": "sigla sin explicar",
+  "simple-4710": "redacción",
+  "simple-643": "puntuación",
+  "simple-3332": "mal recorte",
+  "simple-11277": "no neutral",
+  "simple-93642": "redacción",
+  "simple-3772": "redacción",
+  "simple-18701": "impreciso",
+  "simple-280": "redacción",
+  "simple-64543": "tema",
+  "en-28151": "redacción",
+  "simple-219593": "impreciso",
+  "en-27406894": "guion pegado",
+  "simple-4039": "guion pegado",
+  "en-14579": "guion pegado",
+  "en-645042": "guion pegado",
+  "simple-4113": "mal recorte",
+  "simple-93639": "nota de encabezado",
+  "simple-914181": "redacción",
+  "en-18978770": "tema",
+  "simple-389789": "redacción",
+  "simple-5128": "fecha errónea",
+  "en-12254052": "tema",
+  "simple-3584": "tono",
+  "simple-411": "mal recorte",
+  "simple-55884": "redacción",
+  "simple-12702": "tema",
+  "simple-3793": "redacción",
+  "simple-8636": "tema",
+  "en-53403353": "tema",
+  "en-5052533": "redacción",
+  "simple-18680": "tema",
+  "en-30655949": "tema",
+  "en-1844": "pronunciación",
+  "en-21754": "guion pegado",
+  "en-5042951": "guion pegado",
+  "simple-367662": "redacción",
+  "simple-64995": "redacción",
+  "en-19356": "tema",
+  "simple-1094916": "error tipográfico",
+  "en-20656228": "restos de pronunciación",
+  "simple-481430": "tema",
+  "en-16829895": "tema",
+  "simple-63311": "fragmento",
+  "simple-66904": "nota de encabezado",
+  "simple-4473": "puntuación",
+  "simple-1110989": "redacción",
+  "simple-705391": "puntuación",
+  "en-45896": "tema",
+  "en-234796": "tema",
+  "simple-6238": "tema",
+  "en-32359": "pronunciación",
+  "en-20423": "tema",
+  "simple-12950": "pronunciación",
+  "en-36581": "tema",
+  "en-19230351": "comillas sin cerrar",
+  "en-45728": "guion pegado",
+  "simple-330223": "tema",
+  "en-43173137": "tema",
+  "en-597": "pronunciación",
+  "en-33183": "tono",
+  "simple-1976": "redacción",
+  "simple-19800": "tono",
+  "simple-33836": "tema",
+  "simple-67448": "puntuación",
+  "simple-54315": "redacción",
+  "simple-853214": "redacción",
+  "simple-8150": "error tipográfico",
+  "en-8221": "tema",
+  "en-19572217": "tema",
+  "simple-32064": "tema",
+  "en-630020": "tema",
+  "simple-135566": "tema",
+  "en-13208": "tema",
+  "simple-13795": "tema",
+  "simple-57982": "puntuación",
+  "simple-798": "mal recorte",
+  "en-7140267": "puntuación",
+  "en-9236": "tema repetido en la otra wiki",
+  "simple-5001": "tema",
+  "simple-22857": "muy técnico u oscuro",
+  "simple-66756": "muy técnico u oscuro",
+  "en-49799": "muy técnico u oscuro",
+  "en-20491903": "muy técnico u oscuro",
+  "en-30503": "muy técnico u oscuro",
+  "en-4399619": "muy técnico u oscuro",
+  "simple-188581": "muy técnico u oscuro",
+  "en-23714788": "muy técnico u oscuro",
+  "simple-45979": "muy técnico u oscuro",
+  "simple-16913": "muy técnico u oscuro",
+  "simple-266447": "muy técnico u oscuro",
+  "simple-9525": "muy técnico u oscuro",
+  "simple-7437": "muy técnico u oscuro",
+  "simple-42963": "muy técnico u oscuro",
+  "en-27709": "muy técnico u oscuro",
+  "en-33807": "muy técnico u oscuro",
+  "en-9247": "muy técnico u oscuro",
+  "en-26685": "muy técnico u oscuro",
+  "en-52686": "muy técnico u oscuro",
+  "simple-168457": "muy técnico u oscuro",
+  "en-140466": "muy técnico u oscuro",
+  "en-19881": "muy técnico u oscuro",
+  "en-21073209": "muy técnico u oscuro",
+  "en-18820": "muy técnico u oscuro",
+  "en-569": "muy técnico u oscuro",
+  "en-569037": "muy técnico u oscuro",
+  "simple-319970": "muy técnico u oscuro",
+  "en-1491156": "muy técnico u oscuro",
+  "en-81724": "muy técnico u oscuro",
+  "en-19053": "muy técnico u oscuro",
+  "en-1138373": "muy técnico u oscuro",
+  "en-102920": "muy técnico u oscuro",
+  "en-186184": "muy técnico u oscuro",
+  "simple-511112": "muy técnico u oscuro",
+  "en-735530": "muy técnico u oscuro",
+  "en-74297": "muy técnico u oscuro",
+  "en-12007": "muy técnico u oscuro",
+  "en-26478": "muy técnico u oscuro",
+  "en-296151": "muy técnico u oscuro",
+  "en-7866009": "muy técnico u oscuro",
+  "en-230330": "muy técnico u oscuro",
+  "en-6230": "muy técnico u oscuro",
+  "en-800083": "muy técnico u oscuro",
+  "en-75253": "muy técnico u oscuro",
+  "en-59660": "muy técnico u oscuro",
+  "en-310584": "muy técnico u oscuro",
+  "en-1932209": "muy técnico u oscuro",
+  "en-23364086": "muy técnico u oscuro",
+  "en-569092": "muy técnico u oscuro",
+  "en-27730": "muy técnico u oscuro",
+  "simple-1065949": "muy técnico u oscuro",
+  "en-492271": "muy técnico u oscuro",
+  "en-229988": "muy técnico u oscuro",
+  "simple-558036": "redacción",
+  "simple-3286": "tema",
+  "simple-9600": "redacción",
+  "en-9633": "texto cortado",
+  "simple-19823": "impreciso",
+  "simple-168607": "muy técnico u oscuro",
+  "simple-29261": "redacción",
+  "en-31883": "muy técnico u oscuro",
+  "simple-71489": "muy técnico u oscuro",
+  "en-228592": "tema",
+  "simple-32423": "tema",
+  "simple-20214": "puntuación",
+  "simple-16564": "tema",
+  "simple-32566": "tono",
+  "en-9653": "muy técnico u oscuro",
+  "en-30653": "tema",
+  "simple-9596": "tema",
+  "simple-23341": "puntuación",
+  "simple-45117": "nota de encabezado",
+  "simple-29865": "tema",
+  "simple-126261": "tema",
+  "en-106238": "muy técnico u oscuro",
+  "en-8013": "muy técnico u oscuro",
+  "en-376581": "muy técnico u oscuro",
+  "simple-17305": "error tipográfico",
+  "en-18630": "tema",
+  "en-13808": "tema",
+  "simple-57830": "redacción",
+  "en-27790": "tema",
+  "simple-700820": "tema",
+  "en-149223": "tema",
+  "en-18616290": "texto alterado",
+  "en-31395": "tema",
+  "en-73248112": "se desactualiza",
+  "simple-847930": "tema",
+  "en-11984": "remite a otro artículo",
+  "simple-312": "redacción",
+  "simple-11143": "redacción",
+  "simple-136839": "muy técnico u oscuro",
+  "simple-168397": "muy técnico u oscuro",
+  "simple-169043": "muy técnico u oscuro",
+  "en-15247542": "tema",
+  "simple-15863": "impreciso",
+  "en-19694": "muy técnico u oscuro",
+  "en-18013": "tema",
+  "en-62329": "muy técnico u oscuro",
+  "en-543935": "muy técnico u oscuro",
+  "simple-5899": "mal recorte",
+  "en-11185": "guion pegado",
+  "simple-32330": "redacción",
+  "en-23543": "muy técnico u oscuro",
+  "en-20119": "muy técnico u oscuro",
+  "simple-95782": "tema",
+  "en-10045": "muy técnico u oscuro",
+  "simple-32464": "redacción",
+  "en-19916594": "muy técnico u oscuro",
+  "en-163617": "muy técnico u oscuro",
+  "en-93965": "muy técnico u oscuro",
+  "simple-1013525": "texto cortado",
+  "en-405564": "puntuación",
+  "simple-103047": "restos de plantilla",
+  "simple-12658": "se desactualiza",
+  "simple-16928": "muy técnico u oscuro",
+  "en-27694": "tema",
+  "en-19737": "muy técnico u oscuro",
+  "en-27667": "muy técnico u oscuro",
+  "simple-37492": "muy técnico u oscuro",
+  "en-87168": "muy técnico u oscuro",
+  "simple-218521": "muy técnico u oscuro",
+  "simple-1079341": "muy técnico u oscuro",
+  "en-5876413": "muy técnico u oscuro",
+  "en-1365": "muy técnico u oscuro",
+  "simple-313201": "tema",
+  "simple-430847": "tema",
+  "en-18589032": "muy técnico u oscuro",
+  "en-14889": "tema",
+  "simple-59250": "muy técnico u oscuro",
+  "simple-460358": "muy técnico u oscuro",
+  "simple-845": "tema",
+  "simple-327813": "tema",
+  "en-20556798": "tema",
+  "en-42898": "tema",
+  "en-24818": "muy técnico u oscuro",
+  "simple-558192": "tema",
+  "en-28307": "tema",
+  "en-5993": "muy técnico u oscuro",
+  "en-318500": "muy técnico u oscuro"
+ }
+}

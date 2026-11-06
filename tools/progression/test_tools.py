@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import collections
 import json
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import fetch
 import report
+import selection
 import textrules
 
 
@@ -64,6 +66,13 @@ class FakeWiki:
         query = parse_qs(parts.query)
         if query.get("action") == ["raw"]:
             return reply(VITAL)
+        if query.get("prop") == ["pageviews"]:
+            pages = [
+                {"title": t, "pageviews": {"d1": 10, "d2": None, "d3": 30}}
+                for t in query["titles"][0].split("|")
+                if t != "Ghost"
+            ]
+            return reply({"query": {"pages": pages}})
         if query.get("meta") == ["siteinfo"]:
             return reply({"query": {"rightsinfo": {"text": self.license}}})
         titles = query["titles"][0].split("|")
@@ -161,6 +170,13 @@ class RunTests(unittest.TestCase):
         self.assertEqual(article["wiki"], "simple")
         self.assertIn("Share Alike 4.0", article["license"])
         self.assertTrue(article["pageid"])
+
+    def test_records_page_views(self) -> None:
+        self.run_fetch()
+        views = json.loads((self.cache / "views.json").read_text(encoding="utf-8"))
+        self.assertEqual(views["Alpha"], 30)
+        self.assertEqual(views["Ghost"], 0, "sin datos cuenta como cero")
+        self.assertNotIn("Gamma", views, "fuera de los niveles elegidos")
 
     def test_skips_missing_pages_and_disambiguations(self) -> None:
         self.run_fetch()
@@ -263,6 +279,21 @@ class RuleTests(unittest.TestCase):
         self.assertFalse(textrules.is_valid("Frogs " + "x " * 40 + "end.", "Frogs"), "muy larga")
         self.assertFalse(textrules.is_valid("Frogs may refer to these.", "Frogs"))
 
+    def test_filters_technical_topics(self) -> None:
+        self.assertFalse(textrules.is_valid("In mathematics, frogs are a set.", "Frogs"))
+        self.assertFalse(textrules.is_valid("Frogs is a subfield of biology here.", "Frogs"))
+        self.assertTrue(textrules.is_valid("Frogs live near a quiet pond.", "Frogs"))
+
+    def test_filters_unsuitable_content(self) -> None:
+        self.assertFalse(textrules.is_valid("Frogs were killed in the old town.", "Frogs"))
+        self.assertFalse(textrules.is_valid("Frogs are currently in the old town.", "Frogs"))
+        self.assertFalse(textrules.is_valid("Frogs live (, in) the old town.", "Frogs"))
+        self.assertFalse(textrules.is_valid("Frogs are 12345678 of 12345678 old.", "Frogs"), "dígitos")
+        self.assertFalse(textrules.is_valid("Frogs (a) (b) (c) live in town.", "Frogs"), "paréntesis")
+        self.assertFalse(textrules.is_valid('Frogs say "ribbit in the town.', "Frogs"), "comillas")
+        self.assertFalse(textrules.is_valid("Frogs ( FROG-z) live in town.", "Frogs"), "pronunciación")
+        self.assertFalse(textrules.is_valid("For the band, see frogs. Frogs live here.", "Frogs"))
+
     def test_topic_ignores_articles_and_qualifiers(self) -> None:
         self.assertEqual(textrules.topic_word("The Beatles"), "beatles")
         self.assertEqual(textrules.topic_word("Mercury (planet)"), "mercury")
@@ -275,6 +306,152 @@ class RuleTests(unittest.TestCase):
         fits = textrules.sections_for(cuts)
         self.assertIn(20, fits)
         self.assertIn(100, fits)
+
+
+class SelectionTests(unittest.TestCase):
+    TOPICS = ["Arts", "Geography", "Technology", "Everyday life", "People"]
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.cuts = []
+        number = 0
+        for section in textrules.sections():
+            for lesson in range(1, textrules.LESSONS + 1):
+                for option in range(7):
+                    number += 1
+                    size = round(selection.target_chars(section, lesson))
+                    letters = str.maketrans("0123456789", "abcdefghij")
+                    words = " ".join(f"{number}z{i}".translate(letters) for i in range(size))
+                    text = words[: size - 1].rsplit(" ", 1)[0] + "."
+                    cls.cuts.append(
+                        {
+                            "id": f"simple-{number}",
+                            "wiki": "simple",
+                            "title": f"T{number}",
+                            "revision": number,
+                            "seed": f"t{number}",
+                            "topic": cls.TOPICS[number % len(cls.TOPICS)],
+                            "level": 1 + option % 4,
+                            "text": text,
+                            "d": selection.section_center(section),
+                        }
+                    )
+
+    def test_covers_every_lesson_without_repeating_articles_or_topics_in_a_row(self) -> None:
+        rows, missing = selection.assign(self.cuts, set())
+        self.assertEqual(missing, [])
+        self.assertEqual(len(rows), 510)
+        self.assertEqual(len({r["seed"] for r in rows}), 510)
+        for first, second in zip(rows, rows[1:]):
+            if first["section"] == second["section"]:
+                self.assertNotEqual(first["topic"], second["topic"])
+
+    def test_lengths_and_difficulty_follow_the_section(self) -> None:
+        rows, _ = selection.assign(self.cuts, set())
+        for row in rows:
+            target = selection.target_chars(row["section"], row["lesson"])
+            self.assertLessEqual(abs(len(row["text"]) - target), target * textrules.LENGTH_TOLERANCE)
+            self.assertLessEqual(abs(row["d"] - selection.section_center(row["section"])), selection.D_WIDTH)
+        centers = [selection.section_center(s) for s in textrules.sections()]
+        self.assertEqual(centers, sorted(centers))
+
+    def test_is_deterministic_and_a_rejection_makes_room_for_another_text(self) -> None:
+        rows, _ = selection.assign(self.cuts, set())
+        again, _ = selection.assign(self.cuts, set())
+        self.assertEqual(selection.catalog_text(rows), selection.catalog_text(again))
+        rejected = rows[0]["id"]
+        replaced, missing = selection.assign(self.cuts, {rejected})
+        self.assertEqual(missing, [])
+        self.assertNotIn(rejected, {r["id"] for r in replaced})
+
+    def test_approved_texts_stay_and_only_the_rejected_lesson_changes(self) -> None:
+        rows, _ = selection.assign(self.cuts, set())
+        rejected = rows[100]["id"]
+        review = selection.approve(rows, {"approved": {}, "rejected": {rejected: "error"}})
+        self.assertEqual(len(review["approved"]), 509)
+        self.assertEqual(list(review["approved"])[:2], ["20.1", "20.2"])
+        new, missing = selection.assign(self.cuts, {rejected}, review["approved"])
+        self.assertEqual(missing, [])
+        pending = selection.pending_rows(new, review)
+        self.assertEqual([selection.slot_of(r) for r in pending], [selection.slot_of(rows[100])])
+        self.assertNotEqual(pending[0]["id"], rejected)
+        for first, second in zip(new, new[1:]):
+            if first["section"] == second["section"]:
+                self.assertNotEqual(first["topic"], second["topic"])
+        self.assertEqual(len({r["seed"] for r in new}), 510)
+
+    def test_approving_uses_what_was_shown_in_the_last_proposal(self) -> None:
+        rows, _ = selection.assign(self.cuts, set())
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "proposal.tsv"
+            path.write_text(selection.catalog_text(rows[:3]), encoding="utf-8")
+            shown = selection.read_proposal(path)
+        review = selection.approve(shown, {"approved": {}, "rejected": {rows[1]["id"]: "error"}})
+        self.assertEqual(list(review["approved"]), ["20.1", "20.3"])
+        self.assertEqual(review["approved"]["20.1"]["fingerprint"], selection.fingerprint(rows[0]))
+
+    def test_the_same_title_is_not_used_twice_across_wikis(self) -> None:
+        twin = [dict(c) for c in self.cuts]
+        for cut in twin:
+            cut["title"] = "Same"
+        rows, _ = selection.assign(twin, set())
+        self.assertEqual(len(rows), 1)
+
+    def test_prefers_popular_topics_and_limits_academic_ones(self) -> None:
+        cuts = [
+            {**c, "topic": "Mathematics", "views": 100_000} if i % 2 else {**c, "views": 200}
+            for i, c in enumerate(self.cuts)
+        ]
+        rows, _ = selection.assign(cuts, set())
+        by_section = collections.Counter(
+            r["section"] for r in rows if r["topic"] == "Mathematics"
+        )
+        self.assertLessEqual(max(by_section.values()), 1)
+        unpopular = [{**c, "views": 10} for c in self.cuts]
+        self.assertEqual(selection.assign(unpopular, set())[0], [])
+
+    def test_allows_one_religious_text_per_section_at_most(self) -> None:
+        cuts = [{**c, "title": "Holy"} if i % 2 else c for i, c in enumerate(self.cuts)]
+        rows, _ = selection.assign(cuts, set())
+        by_section = collections.Counter(r["section"] for r in rows if selection.is_religious(r))
+        self.assertLessEqual(max(by_section.values()), 1)
+
+    def test_detects_religious_texts_by_title_or_first_sentence(self) -> None:
+        self.assertTrue(selection.is_religious({"title": "Bible", "text": "A book. It is old."}))
+        self.assertTrue(selection.is_religious({"title": "Zeus", "text": "Zeus is a Greek god."}))
+        self.assertFalse(selection.is_religious({"title": "Milk", "text": "Milk is food."}))
+        self.assertFalse(selection.is_religious({"title": "Christopher Columbus", "text": "He sailed."}))
+        self.assertFalse(selection.is_religious({"title": "Jewellery", "text": "Rings are nice."}))
+        self.assertFalse(
+            selection.is_religious({"title": "Milk", "text": "Milk is food. A god drank it."})
+        )
+
+    def test_a_changed_text_needs_a_new_review(self) -> None:
+        rows, _ = selection.assign(self.cuts, set())
+        row = rows[0]
+        review = selection.approve([row], {"approved": {}, "rejected": {}})
+        self.assertEqual(selection.pending_rows([row], review), [])
+        changed = {**row, "text": row["text"] + " More."}
+        self.assertEqual(selection.pending_rows([changed], review), [changed])
+
+    def test_uncovered_lessons_are_reported(self) -> None:
+        rows, missing = selection.assign([], set())
+        self.assertEqual(rows, [])
+        self.assertEqual(len(missing), 510)
+
+    def test_difficulty_grows_with_rare_words_and_long_sentences(self) -> None:
+        frequency = selection.word_rarity(["the cat sat", "the dog ran", "the sun set", "zygote"])
+        easy = selection.features("The cat sat. The dog ran.", frequency)
+        hard = selection.features("Zygote, the zygote zygote zygote zygote zygote zygote.", frequency)
+        difficulty = selection.Difficulty([easy, hard])
+        self.assertLess(difficulty(easy), difficulty(hard))
+
+    def test_catalog_lines_have_all_the_attribution(self) -> None:
+        rows, _ = selection.assign(self.cuts, set())
+        fields = selection.catalog_text(rows[:1]).splitlines()[-1].split("\t")
+        self.assertEqual(len(fields), 9)
+        self.assertEqual(fields[0:2], ["20", "1"])
+        self.assertEqual(fields[5], "simple")
 
 
 class ReportTests(unittest.TestCase):
