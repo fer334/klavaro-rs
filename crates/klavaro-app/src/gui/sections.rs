@@ -1,22 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Vistas de la Progresión: selección de sección, grilla de lecciones y resultado.
 
-use iced::widget::{Space, button, column, container, operation, row, scrollable, text};
+use iced::widget::{
+    Space, button, column, container, operation, progress_bar, row, scrollable, text,
+};
 use iced::{Alignment, Element, Length, Task};
 
 use klavaro_core::progression::{
-    FIRST_SECTION, FULL_STARS_ACCURACY, LAST_SECTION, LESSONS_PER_SECTION, LessonResult, NextStep,
-    SECTION_STARS, SECTION_STEP, SECTIONS, SectionStatus, Slot, TOTAL_STARS, sections,
+    FIRST_SECTION, FULL_STARS_ACCURACY, LAST_SECTION, LESSONS_PER_SECTION, LessonResult, MAX_STARS,
+    Milestone, NextStep, SECTION_STARS, SECTION_STEP, SECTIONS, SectionStatus, Slot, TOTAL_STARS,
+    sections,
 };
 
 use klavaro_data::catalog::CatalogEntry;
 
-use super::{App, Message, action, bar_with_back, card, page_title, stat, top_bar};
+use super::{App, Message, ResetStep, action, bar_with_back, card, page_title, stat, top_bar};
 use crate::sections::{
     LESSON_COLUMNS, SECTION_COLUMNS, SectionView, SectionsView, clock, source_name, star_line,
 };
 use crate::style;
-use crate::tutor::Outcome;
+use crate::tutor::{Outcome, Tutor};
 
 /// Licencia de los textos.
 const LICENSE_NAME: &str = "CC BY-SA 4.0";
@@ -177,6 +180,7 @@ impl App {
             text(tr.tr_args("sections-intro", &[("goal", &LAST_SECTION.to_string())]))
                 .size(14)
                 .style(style::muted),
+            self.overall_progress(),
             scrollable(grid(cards, SECTION_COLUMNS))
                 .spacing(8)
                 .id(GRID_SCROLL)
@@ -312,6 +316,7 @@ impl App {
     /// Resultado de una lección: estrellas, medidas y qué sigue.
     pub(super) fn lesson_result<'a>(
         &'a self,
+        tutor: &'a Tutor,
         outcome: &'a Outcome,
         result: LessonResult,
     ) -> Element<'a, Message> {
@@ -360,6 +365,27 @@ impl App {
             summary = summary.push(text(note.clone()).size(15));
         }
         summary = summary.push(text(tr.tr(hint)).size(13).style(style::muted));
+        let weak = tutor.weak_keys();
+        if !weak.is_empty() {
+            let keys: Vec<String> = weak.iter().map(|&key| self.key_name(key)).collect();
+            summary = summary.push(
+                text(tr.tr_args("sections-weak-keys", &[("keys", &keys.join(" "))]))
+                    .size(13)
+                    .color(colors.warning),
+            );
+        }
+        let mut buttons = row![action(
+            tr.tr("menu-progress"),
+            Message::LessonProgress(result.slot),
+        )]
+        .spacing(8);
+        if tutor.practice_suggested() {
+            buttons = buttons.push(action(
+                tr.tr("sections-practice"),
+                Message::PracticeWeakKeys,
+            ));
+        }
+        summary = summary.push(buttons);
         if let Some(source) = &outcome.source {
             summary = summary.push(self.source_link(source));
         }
@@ -415,6 +441,145 @@ impl App {
             scrollable(column(lines).spacing(2).width(Length::Fill)).height(Length::Fill),
         ]
         .spacing(16)
+        .into()
+    }
+
+    /// Nombre de una tecla para mostrar.
+    fn key_name(&self, key: char) -> String {
+        if key == ' ' {
+            self.tr.tr("sections-space")
+        } else {
+            key.to_string()
+        }
+    }
+
+    /// Avance hacia la última meta.
+    fn overall_progress<'a>(&self) -> Element<'a, Message> {
+        let total = u32::from(SECTIONS) * u32::from(LESSONS_PER_SECTION);
+        let passed = self.ladder.total_lessons_passed();
+        let best = self.ladder.highest_passed().map_or_else(
+            || "—".to_owned(),
+            |section| self.wpm_label(&section.to_string()),
+        );
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = passed as f32 / total as f32;
+        column![
+            progress_bar(0.0..=1.0, ratio)
+                .girth(6)
+                .style(style::progress),
+            text(self.tr.tr_args(
+                "sections-overall",
+                &[
+                    ("done", &passed.to_string()),
+                    ("total", &total.to_string()),
+                    ("best", &best),
+                    ("goal", &self.wpm_label(&LAST_SECTION.to_string())),
+                ],
+            ))
+            .size(13)
+            .style(style::muted),
+        ]
+        .spacing(6)
+        .into()
+    }
+
+    /// Estrellas de cada sección, como barras.
+    pub(super) fn stars_chart<'a>(&self) -> Element<'a, Message> {
+        let colors = style::Colors::new(self.dark);
+        let lines = sections().map(|section| {
+            let stars = self.ladder.section_stars(section);
+            #[allow(clippy::cast_precision_loss)]
+            let ratio = stars as f32 / SECTION_STARS as f32;
+            row![
+                text(self.wpm_label(&section.to_string()))
+                    .size(13)
+                    .width(Length::Fixed(80.0)),
+                progress_bar(0.0..=1.0, ratio)
+                    .girth(10)
+                    .style(style::progress),
+                text(format!("★ {stars}/{SECTION_STARS}"))
+                    .size(13)
+                    .color(colors.warning)
+                    .width(Length::Fixed(90.0)),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into()
+        });
+        scrollable(column(lines).spacing(8).padding([0, 12])).into()
+    }
+
+    /// Pantalla al aprobar una sección o completar la Progresión.
+    pub(super) fn view_milestone<'a>(&self, milestone: Milestone) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let colors = style::Colors::new(self.dark);
+        let (title, detail) = match milestone {
+            Milestone::SectionPassed(section) => (
+                tr.tr_args("sections-passed", &[("section", &section.to_string())]),
+                tr.tr_args(
+                    "sections-next-goal",
+                    &[("section", &(section + SECTION_STEP).to_string())],
+                ),
+            ),
+            Milestone::Completed => (
+                tr.tr("sections-completed"),
+                tr.tr_args(
+                    "sections-completed-detail",
+                    &[("goal", &LAST_SECTION.to_string())],
+                ),
+            ),
+        };
+        let content = column![
+            text(star_line(MAX_STARS)).size(44).color(colors.warning),
+            text(title).size(26).font(style::BOLD).center(),
+            text(detail).size(16).style(style::muted).center(),
+            text(format!("★ {}/{TOTAL_STARS}", self.ladder.total_stars()))
+                .size(18)
+                .color(colors.warning),
+            button(text(tr.tr("sections-continue")))
+                .style(style::primary)
+                .padding([10, 20])
+                .on_press(Message::MilestoneContinue),
+            text(tr.tr("sections-milestone-keys"))
+                .size(12)
+                .style(style::muted),
+        ]
+        .spacing(16)
+        .align_x(Alignment::Center);
+        container(content).center(Length::Fill).into()
+    }
+
+    /// Tarjeta de Preferencias para reiniciar la Progresión.
+    pub(super) fn reset_card<'a>(&self) -> Element<'a, Message> {
+        let tr = &self.tr;
+        let colors = style::Colors::new(self.dark);
+        let controls: Element<'a, Message> = match self.reset {
+            ResetStep::Idle => action(tr.tr("sections-reset"), Message::ResetAsk),
+            ResetStep::Confirming => row![
+                text(tr.tr("sections-reset-confirm"))
+                    .size(14)
+                    .color(colors.danger),
+                action(tr.tr("sections-reset-yes"), Message::ResetConfirm),
+                action(tr.tr("sections-reset-no"), Message::ResetCancel),
+            ]
+            .spacing(10)
+            .align_y(Alignment::Center)
+            .into(),
+            ResetStep::Done => text(tr.tr("sections-reset-done"))
+                .size(14)
+                .color(colors.success)
+                .into(),
+        };
+        card(
+            column![
+                text(tr.tr("module-progression")).size(18).font(style::BOLD),
+                text(tr.tr("sections-reset-tip"))
+                    .size(12)
+                    .style(style::muted),
+                controls,
+            ]
+            .spacing(14),
+        )
         .into()
     }
 }

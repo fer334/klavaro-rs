@@ -185,8 +185,10 @@ pub struct LessonBest {
 pub struct SessionFilter {
     /// Módulo.
     pub module: Module,
-    /// Número de lección (Básico).
+    /// Número de lección (Básico) o sección (Progresión).
     pub lesson: Option<u16>,
+    /// Lección exacta, por su nombre en el historial (Progresión: `75-03`).
+    pub lesson_name: Option<String>,
     /// Distribución de teclado.
     pub keyboard: Option<String>,
     /// Idioma de los textos.
@@ -199,6 +201,7 @@ impl SessionFilter {
         Self {
             module,
             lesson: None,
+            lesson_name: None,
             keyboard: None,
             language: None,
         }
@@ -313,6 +316,18 @@ impl History {
         Ok(())
     }
 
+    /// Borra los intentos de la Progresión en un idioma. No toca las sesiones ni el Top 10.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la escritura.
+    pub fn reset_lessons(&self, language: &str) -> Result<usize> {
+        Ok(self.conn.execute(
+            "DELETE FROM progression_attempts WHERE language = ?1",
+            [language],
+        )?)
+    }
+
     /// Mejores valores de cada lección jugada en un idioma, en orden. Los valores salen de todos
     /// los intentos, así que un resultado peor nunca los baja. Se ignoran las lecciones que no
     /// existen en esta versión.
@@ -375,6 +390,7 @@ impl History {
                AND (?2 IS NULL OR CAST(lesson AS INTEGER) = ?2)
                AND (?3 IS NULL OR keyboard = ?3)
                AND (?4 IS NULL OR language = ?4)
+               AND (?6 IS NULL OR lesson = ?6)
              ORDER BY at DESC, id DESC LIMIT ?5",
         )?;
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
@@ -386,7 +402,8 @@ impl History {
                     filter.lesson,
                     filter.keyboard,
                     filter.language,
-                    limit
+                    limit,
+                    filter.lesson_name
                 ],
                 |row| {
                     Ok(SessionRecord {
@@ -683,6 +700,37 @@ mod tests {
     }
 
     #[test]
+    fn resetting_the_progression_keeps_sessions_and_ranking() {
+        let mut h = History::in_memory().expect("base");
+        save(&mut h, &attempt("C", slot(20, 1), 5, 22.0));
+        save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
+        let mut top = Ranking::default();
+        top.insert(entry(5.0), true).expect("entra");
+        h.save_ranking("C", &top).expect("ranking");
+        assert_eq!(h.reset_lessons("C").expect("borrar"), 1);
+        assert_eq!(h.lesson_bests("C").expect("leer"), Vec::new());
+        assert_eq!(h.lesson_bests("es").expect("leer").len(), 1);
+        assert_eq!(h.count(Module::Progression).expect("contar"), 2);
+        assert_eq!(h.ranking("C").expect("ranking").entries().len(), 1);
+    }
+
+    #[test]
+    fn filters_sessions_by_exact_lesson_name() {
+        let h = History::in_memory().expect("base");
+        for (at, lesson) in [(1, "20-01"), (2, "20-02"), (3, "25-01")] {
+            let mut record = session(Module::Progression, at, 20.0);
+            record.lesson = Some(lesson.into());
+            h.record(&record).expect("guardar");
+        }
+        let mut filter = SessionFilter::module(Module::Progression);
+        filter.lesson_name = Some("20-02".into());
+        assert_eq!(h.sessions(&filter, 10).expect("leer").len(), 1);
+        let mut filter = SessionFilter::module(Module::Progression);
+        filter.lesson = Some(20);
+        assert_eq!(h.sessions(&filter, 10).expect("leer").len(), 2);
+    }
+
+    #[test]
     fn lesson_progress_is_kept_per_language() {
         let mut h = History::in_memory().expect("base");
         save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
@@ -768,6 +816,7 @@ mod tests {
         lesson(3, "04", "qwerty_es");
         lesson(4, "03", "dvorak");
         let filter = SessionFilter {
+            lesson_name: None,
             lesson: Some(3),
             keyboard: Some("qwerty_es".into()),
             ..SessionFilter::module(Module::Basic)
@@ -779,6 +828,7 @@ mod tests {
         velo.language = Some("es".into());
         h.record(&velo).expect("guardar");
         let filter = |l: &str| SessionFilter {
+            lesson_name: None,
             language: Some(l.into()),
             ..SessionFilter::module(Module::Velocity)
         };

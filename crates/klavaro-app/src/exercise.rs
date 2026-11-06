@@ -8,7 +8,7 @@ use klavaro_core::Module;
 use klavaro_core::generators::{LanguageRules, adaptability, basic, fluidity, velocity};
 use klavaro_core::goals::Comment;
 use klavaro_core::keyboard::KeyboardLayout;
-use klavaro_core::progression::{NextStep, Slot};
+use klavaro_core::progression::{Milestone, NextStep, Slot};
 use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
 use klavaro_core::tracker::KeyTracker;
@@ -132,7 +132,12 @@ pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
         Recorded::Logged(Some(Rejection::Invalid)) => Some(tr.tr("ps-invalid")),
         Recorded::Logged(Some(Rejection::TextNotSimilar)) => Some(tr.tr("ps-not-similar")),
         Recorded::Ranked(_) => Some(tr.tr("ps-ranked")),
-        Recorded::Lesson { record, next, slot } => lesson_note(tr, record, next, slot),
+        Recorded::Lesson {
+            record,
+            gained,
+            next,
+            milestone,
+        } => lesson_note(tr, record, gained, next, milestone),
         Recorded::TooShort { chars } => Some(tr.tr_args(
             "ps-not-logged",
             &[
@@ -143,21 +148,31 @@ pub(crate) fn recorded_text(tr: &Translator, r: Recorded) -> Option<String> {
     }
 }
 
-/// Nota al terminar una lección de la Progresión: si hubo récord y qué abrió.
-fn lesson_note(tr: &Translator, record: bool, next: NextStep, slot: Slot) -> Option<String> {
+/// Nota al terminar una lección de la Progresión: lo que se ganó y qué falta.
+fn lesson_note(
+    tr: &Translator,
+    record: bool,
+    gained: u8,
+    next: NextStep,
+    milestone: Option<Milestone>,
+) -> Option<String> {
     let mut notes = Vec::new();
+    if gained > 0 {
+        notes.push(tr.tr_args("sections-gained", &[("count", &gained.to_string())]));
+    }
     if record {
         notes.push(tr.tr("sections-record"));
     }
-    match next {
-        NextStep::Open(n) if n.section() != slot.section() => notes.push(tr.tr_args(
-            "sections-passed",
-            &[("section", &slot.section().to_string())],
-        )),
-        NextStep::Open(_) => {}
-        NextStep::NeedsPassStars => notes.push(tr.tr("sections-need-pass")),
-        NextStep::NeedsSection => notes.push(tr.tr("sections-need-goal")),
-        NextStep::Completed => notes.push(tr.tr("sections-completed")),
+    match milestone {
+        Some(Milestone::SectionPassed(section)) => {
+            notes.push(tr.tr_args("sections-passed", &[("section", &section.to_string())]));
+        }
+        Some(Milestone::Completed) => notes.push(tr.tr("sections-completed")),
+        None => match next {
+            NextStep::NeedsPassStars => notes.push(tr.tr("sections-need-pass")),
+            NextStep::NeedsSection => notes.push(tr.tr("sections-need-goal")),
+            NextStep::Open(_) | NextStep::Completed => {}
+        },
     }
     (!notes.is_empty()).then(|| notes.join(" · "))
 }
@@ -261,23 +276,27 @@ mod tests {
                 Recorded::TooShort { chars: 10 },
                 Recorded::Lesson {
                     record: true,
+                    gained: 2,
                     next: NextStep::NeedsPassStars,
-                    slot: Slot::FIRST,
+                    milestone: None,
                 },
                 Recorded::Lesson {
                     record: false,
+                    gained: 0,
                     next: NextStep::NeedsSection,
-                    slot: Slot::FIRST,
+                    milestone: None,
                 },
                 Recorded::Lesson {
                     record: false,
+                    gained: 0,
                     next: NextStep::Completed,
-                    slot: Slot::FIRST,
+                    milestone: Some(Milestone::Completed),
                 },
                 Recorded::Lesson {
                     record: false,
+                    gained: 1,
                     next: NextStep::Open(Slot::new(25, 1).expect("lección")),
-                    slot: Slot::new(20, 30).expect("lección"),
+                    milestone: Some(Milestone::SectionPassed(20)),
                 },
             ];
             for r in notes {

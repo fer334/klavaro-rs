@@ -395,25 +395,26 @@ historia, personas, y filosofía y religión), y a lo sumo 1 texto sobre religi�
 
 ### Tareas
 
-- [ ] Mostrar el total de estrellas y el avance hacia los 100 WPM en la selección de sección.
-- [ ] Destacar el récord y las estrellas nuevas en el resultado.
-- [ ] Agregar una pantalla de sección aprobada y otra de Progresión completada.
-- [ ] Reutilizar el pitido o un sonido del sistema al ganar estrellas, respetando las Preferencias.
-- [ ] Agregar la Progresión a la pantalla de Progreso, como los otros modos: elegir sección y lección
+- [x] Mostrar el total de estrellas y el avance hacia los 100 WPM en la selección de sección.
+- [x] Destacar el récord y las estrellas nuevas en el resultado.
+- [x] Agregar una pantalla de sección aprobada y otra de Progresión completada.
+- [x] Reutilizar el pitido o un sonido del sistema al ganar estrellas, respetando las Preferencias.
+- [x] Agregar la Progresión a la pantalla de Progreso, como los otros modos: elegir sección y lección
   (o todas), y ver los gráficos de WPM y precisión de sus intentos, con la meta de la lección como
   línea de referencia.
-- [ ] Agregar un botón de Progreso en la lección y en su resultado, que abra el gráfico de esa lección.
-- [ ] Agregar un gráfico de estrellas por sección.
-- [ ] Mostrar las teclas más débiles de la lección y un acceso a la sesión especial de Adaptabilidad
+- [x] Agregar un botón de Progreso en la lección y en su resultado, que abra el gráfico de esa lección.
+- [x] Agregar un gráfico de estrellas por sección.
+- [x] Mostrar las teclas más débiles de la lección y un acceso a la sesión especial de Adaptabilidad
   cuando corresponda.
-- [ ] Agregar en Preferencias "Reiniciar progresión", con confirmación.
+- [x] Agregar en Preferencias "Reiniciar progresión", con confirmación.
 
 ### Criterios de aceptación
 
-- [ ] Una prueba confirma que el gráfico de una lección muestra solo sus intentos.
-- [ ] Reiniciar no toca `sessions` ni el Top 10.
-- [ ] Las vistas funcionan en tema claro y oscuro y con el tamaño mínimo de ventana.
-- [ ] Las animaciones o sonidos no agregan demora antes de poder reintentar.
+- [x] Una prueba confirma que el gráfico de una lección muestra solo sus intentos.
+- [x] Reiniciar no toca `sessions` ni el Top 10.
+- [ ] Las vistas funcionan en tema claro y oscuro y con el tamaño mínimo de ventana. Falta revisarlo a mano.
+- [ ] Revisar a mano los gráficos, la pantalla de sección aprobada y el reinicio.
+- [x] Las animaciones o sonidos no agregan demora antes de poder reintentar.
 
 ---
 

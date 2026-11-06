@@ -214,6 +214,15 @@ pub enum NextStep {
     Completed,
 }
 
+/// Un logro que merece una pantalla propia.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Milestone {
+    /// Se acaba de aprobar la sección con esta meta.
+    SectionPassed(u16),
+    /// Se acaba de aprobar la última sección.
+    Completed,
+}
+
 /// Mejores estrellas de cada lección, y lo que abren. Las reglas de desbloqueo viven acá.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Ladder {
@@ -247,6 +256,31 @@ impl Ladder {
     pub fn lessons_passed(&self, section: u16) -> u16 {
         let passed = self.of_section(section).filter(|&(_, s)| s >= PASS_STARS);
         u16::try_from(passed.count()).unwrap_or(u16::MAX)
+    }
+
+    /// Lecciones de toda la Progresión con al menos [`PASS_STARS`] estrellas.
+    pub fn total_lessons_passed(&self) -> u32 {
+        let passed = self.best.values().filter(|&&stars| stars >= PASS_STARS);
+        u32::try_from(passed.count()).unwrap_or(u32::MAX)
+    }
+
+    /// La meta más alta entre las secciones aprobadas.
+    pub fn highest_passed(&self) -> Option<u16> {
+        sections()
+            .filter(|&section| self.section_passed(section))
+            .last()
+    }
+
+    /// Qué logro alcanzó una lección, comparando el estado de antes con este.
+    pub fn milestone(&self, before: &Self, slot: Slot) -> Option<Milestone> {
+        let section = slot.section;
+        if before.section_passed(section) || !self.section_passed(section) {
+            None
+        } else if section == LAST_SECTION {
+            Some(Milestone::Completed)
+        } else {
+            Some(Milestone::SectionPassed(section))
+        }
     }
 
     /// Si una sección está aprobada: todas sus lecciones con al menos [`PASS_STARS`] estrellas
@@ -549,6 +583,38 @@ mod tests {
         let fives = Ladder::new(all_of(20, 5));
         assert_eq!(fives.current_lesson(20), None);
         assert_eq!(fives.current_section(), 25);
+    }
+
+    #[test]
+    fn counts_the_overall_progress() {
+        let mut best = all_of(20, 5);
+        best.push((slot(25, 1), 2));
+        best.push((slot(25, 2), 3));
+        let ladder = Ladder::new(best);
+        assert_eq!(ladder.total_lessons_passed(), 31);
+        assert_eq!(ladder.highest_passed(), Some(20));
+        assert_eq!(Ladder::default().highest_passed(), None);
+    }
+
+    #[test]
+    fn a_milestone_happens_only_when_the_section_is_just_passed() {
+        let mut almost = all_of(20, 5);
+        almost.push((slot(20, 30), 3));
+        let before = Ladder::new(almost);
+        let after = Ladder::new(all_of(20, 5));
+        let last = slot(20, 30);
+        assert_eq!(
+            after.milestone(&before, last),
+            Some(Milestone::SectionPassed(20))
+        );
+        assert_eq!(after.milestone(&after, last), None, "ya estaba aprobada");
+        assert_eq!(before.milestone(&before, last), None, "todavía no");
+        let everything: Vec<_> = sections().flat_map(|s| all_of(s, 5)).collect();
+        let done = Ladder::new(everything);
+        assert_eq!(
+            done.milestone(&Ladder::default(), slot(100, 30)),
+            Some(Milestone::Completed)
+        );
     }
 
     #[test]

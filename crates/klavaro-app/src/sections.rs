@@ -92,6 +92,20 @@ fn moved(index: u16, last: u16, columns: u16, direction: Direction) -> Option<u1
     target.filter(|&t| t <= last)
 }
 
+/// Sección siguiente o anterior en el filtro de los gráficos, donde 0 quiere decir todas.
+pub(crate) fn stepped_section(section: u16, delta: i32) -> u16 {
+    let index = if section == 0 {
+        0
+    } else {
+        i32::from((section - FIRST_SECTION) / SECTION_STEP) + 1
+    };
+    let last = i32::from((LAST_SECTION - FIRST_SECTION) / SECTION_STEP) + 1;
+    match u16::try_from((index + delta).clamp(0, last)).unwrap_or(0) {
+        0 => 0,
+        moved => FIRST_SECTION + (moved - 1) * SECTION_STEP,
+    }
+}
+
 /// Estado de la Progresión a partir de los mejores resultados.
 pub(crate) fn ladder(bests: &[LessonBest]) -> Ladder {
     Ladder::new(bests.iter().map(|b| (b.slot, b.stars)))
@@ -144,6 +158,16 @@ mod tests {
     #[test]
     fn a_language_without_a_catalog_is_an_error() {
         assert!(assets::lesson("es", Slot::FIRST).is_err());
+    }
+
+    #[test]
+    fn steps_through_the_section_filter() {
+        assert_eq!(stepped_section(0, 1), 20);
+        assert_eq!(stepped_section(20, 1), 25);
+        assert_eq!(stepped_section(20, -1), 0);
+        assert_eq!(stepped_section(0, -1), 0);
+        assert_eq!(stepped_section(100, 1), 100);
+        assert_eq!(stepped_section(100, -1), 95);
     }
 
     #[test]

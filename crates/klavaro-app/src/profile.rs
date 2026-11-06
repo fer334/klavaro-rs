@@ -8,7 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use klavaro_core::Module;
-use klavaro_core::progression::{NextStep, Slot};
+use klavaro_core::progression::{Milestone, NextStep};
 use klavaro_core::ranking::{MIN_CHARS, Ranking, RankingEntry, Rejection, text_resembles_language};
 use klavaro_core::tracker::KeyTracker;
 use klavaro_store::history::ScoreRecord;
@@ -32,10 +32,12 @@ pub(crate) enum Recorded {
     Lesson {
         /// Si superó el mejor resultado anterior de la lección.
         record: bool,
+        /// Estrellas que sumó respecto del mejor resultado anterior.
+        gained: u8,
         /// Qué abre la lección.
         next: NextStep,
-        /// La lección.
-        slot: Slot,
+        /// El logro que acaba de alcanzar, si hubo.
+        milestone: Option<Milestone>,
     },
     /// Fluidez con menos de [`MIN_CHARS`] caracteres: no se guarda, como en el original.
     TooShort {
@@ -262,10 +264,8 @@ impl Profile {
         };
         let slot = result.slot;
         let stats = &outcome.stats;
-        let before = history
-            .lesson_bests(&spec.language)?
-            .into_iter()
-            .find(|b| b.slot == slot);
+        let previous = history.lesson_bests(&spec.language)?;
+        let before = previous.iter().find(|b| b.slot == slot);
         let at = now();
         let attempt = LessonAttempt {
             at,
@@ -293,8 +293,9 @@ impl Profile {
         let ladder = sections::ladder(&history.lesson_bests(&spec.language)?);
         Ok(Recorded::Lesson {
             record: before.is_some_and(|b| result.speed > b.wpm || result.stars > b.stars),
+            gained: result.stars.saturating_sub(before.map_or(0, |b| b.stars)),
             next: ladder.next_step(slot),
-            slot,
+            milestone: ladder.milestone(&sections::ladder(&previous), slot),
         })
     }
 
@@ -303,6 +304,14 @@ impl Profile {
         self.history
             .as_ref()
             .map_or_else(|| Ok(Vec::new()), |h| h.lesson_bests(language))
+    }
+
+    /// Borra las estrellas de la Progresión en un idioma. El historial de sesiones no cambia.
+    pub(crate) fn reset_lessons(&self, language: &str) -> Result<(), StoreError> {
+        match &self.history {
+            Some(h) => h.reset_lessons(language).map(|_| ()),
+            None => Ok(()),
+        }
     }
 
     /// Gráfico de progreso (vacío si no hay historial).
@@ -350,7 +359,7 @@ mod tests {
 
     use klavaro_core::goals::{Comment, GoalCheck, Goals};
     use klavaro_core::metrics::Stats;
-    use klavaro_core::progression::Ladder;
+    use klavaro_core::progression::{Ladder, Slot};
 
     use super::*;
     use crate::tutor::{Input, Tutor};
@@ -392,10 +401,15 @@ mod tests {
             let slot = Slot::new(20, lesson).expect("lección");
             assert!(stars_saved(&profile).lesson_unlocked(slot), "{slot:?}");
             let recorded = play_lesson(&mut profile, slot, 200);
-            let Recorded::Lesson { next, .. } = recorded else {
+            let Recorded::Lesson {
+                next, milestone, ..
+            } = recorded
+            else {
                 panic!("{recorded:?}");
             };
             assert_eq!(next, stars_saved(&profile).next_step(slot));
+            let expected = (lesson == 30).then_some(Milestone::SectionPassed(20));
+            assert_eq!(milestone, expected, "{slot:?}");
         }
         let saved = stars_saved(&profile);
         assert!(saved.section_passed(20));
@@ -404,6 +418,18 @@ mod tests {
         let history = profile.history().expect("historial");
         assert_eq!(history.count(Module::Progression).expect("contar"), 30);
         assert_eq!(history.count(Module::Fluidity).expect("contar"), 0);
+    }
+
+    #[test]
+    fn resetting_removes_the_stars() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        play_lesson(&mut profile, Slot::FIRST, 200);
+        profile
+            .reset_lessons(sections::LESSONS_LANGUAGE)
+            .expect("borrar");
+        assert_eq!(stars_saved(&profile).total_stars(), 0);
+        let history = profile.history().expect("historial");
+        assert_eq!(history.count(Module::Progression).expect("contar"), 1);
     }
 
     #[test]
@@ -430,8 +456,9 @@ mod tests {
             recorded,
             Recorded::Lesson {
                 record: false,
+                gained: 5,
                 next: NextStep::Open(Slot::new(20, 2).expect("lección")),
-                slot: Slot::FIRST,
+                milestone: None,
             }
         );
         assert_eq!(profile.ranking("es").expect("top").entries().len(), 0);
@@ -445,12 +472,20 @@ mod tests {
         assert_eq!(stars_saved(&profile).stars(Slot::FIRST), 2);
         assert!(matches!(
             play_lesson(&mut profile, Slot::FIRST, 200),
-            Recorded::Lesson { record: true, .. }
+            Recorded::Lesson {
+                record: true,
+                gained: 3,
+                ..
+            }
         ));
         assert_eq!(stars_saved(&profile).stars(Slot::FIRST), 5);
         assert!(matches!(
             play_lesson(&mut profile, Slot::FIRST, 1100),
-            Recorded::Lesson { record: false, .. }
+            Recorded::Lesson {
+                record: false,
+                gained: 0,
+                ..
+            }
         ));
         assert_eq!(stars_saved(&profile).stars(Slot::FIRST), 5);
     }

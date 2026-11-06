@@ -5,6 +5,7 @@
 //! [`Tutor::handle`]; después dibuja [`Tutor::segments`]. Así toda la lógica de la pantalla
 //! se prueba sin abrir una ventana.
 
+use std::collections::BTreeMap;
 use std::io;
 use std::time::Duration;
 
@@ -168,6 +169,10 @@ pub(crate) struct Tutor {
     generation: u32,
     /// En la Progresión: de dónde salió el texto.
     source: Option<CatalogEntry>,
+    /// Errores de este ejercicio por tecla.
+    mistakes: BTreeMap<char, u32>,
+    /// Hay un error sin corregir: lo que se teclee hasta borrarlo no cuenta como otro error.
+    typo_open: bool,
 }
 
 impl Tutor {
@@ -197,6 +202,8 @@ impl Tutor {
             special: false,
             generation: 0,
             source,
+            mistakes: BTreeMap::new(),
+            typo_open: false,
         })
     }
 
@@ -287,6 +294,18 @@ impl Tutor {
         missing
     }
 
+    /// Las teclas en las que más se erró en este ejercicio, de más a menos.
+    pub(crate) fn weak_keys(&self) -> Vec<char> {
+        let mut keys: Vec<(char, u32)> = self.mistakes.iter().map(|(&k, &n)| (k, n)).collect();
+        keys.sort_by_key(|&(key, count)| (std::cmp::Reverse(count), key));
+        keys.into_iter().take(5).map(|(key, _)| key).collect()
+    }
+
+    /// Si conviene una sesión especial de Adaptabilidad para las teclas débiles.
+    pub(crate) fn practice_suggested(&self) -> bool {
+        self.tracker.special_session().is_some()
+    }
+
     /// Tiempo desde la primera tecla hasta la última.
     pub(crate) fn elapsed(&self) -> Duration {
         self.session.elapsed()
@@ -306,6 +325,8 @@ impl Tutor {
         let text = exercise::generate(&self.spec, &self.layout, self.seed, weak)?;
         self.session = Session::new(self.spec.module, &text);
         self.outcome = None;
+        self.mistakes.clear();
+        self.typo_open = false;
         Ok(())
     }
 
@@ -363,15 +384,21 @@ impl Tutor {
         let track = self.spec.module != Module::Basic;
         match self.session.press(key, at) {
             Feedback::Correct { expected, interval } if track => {
+                self.typo_open = false;
                 self.tracker.correct(&self.layout, expected, interval);
             }
             Feedback::Retouched { expected } if track => {
+                self.typo_open = false;
                 self.tracker.correct(&self.layout, expected, None);
             }
             Feedback::Wrong { expected, .. } => {
                 if track {
                     self.tracker.wrong(&self.layout, expected);
                 }
+                if !self.typo_open {
+                    *self.mistakes.entry(expected).or_insert(0) += 1;
+                }
+                self.typo_open = true;
                 effect.beep = true;
             }
             Feedback::Ignored => effect.beep = true,
@@ -379,7 +406,8 @@ impl Tutor {
                 self.finish(stats);
                 effect.finished = true;
             }
-            Feedback::Correct { .. } | Feedback::Retouched { .. } | Feedback::Erased => {}
+            Feedback::Erased => self.typo_open = false,
+            Feedback::Correct { .. } | Feedback::Retouched { .. } => {}
         }
     }
 
@@ -576,6 +604,25 @@ mod tests {
         let t =
             Tutor::new(spec(slot), layout, Goals::default(), 1, KeyTracker::new()).expect("tutor");
         assert!(!t.missing_keys().is_empty(), "{foreign}");
+    }
+
+    #[test]
+    fn counts_one_mistake_per_typo_and_lists_the_weakest_keys() {
+        let mut t = lesson_tutor(20, 1);
+        let text: Vec<char> = t.text().chars().collect();
+        let at = Duration::ZERO;
+        t.handle(Input::Char('#'), at).expect("error");
+        t.handle(Input::Char('#'), at).expect("sigue mal");
+        assert_eq!(t.weak_keys(), vec![text[0]], "un solo error, no dos");
+        t.handle(Input::Backspace, at).expect("borra");
+        t.handle(Input::Backspace, at).expect("borra");
+        t.handle(Input::Char(text[0]), at).expect("corrige");
+        t.handle(Input::Char('#'), at).expect("otro error");
+        t.handle(Input::Backspace, at).expect("borra");
+        t.handle(Input::Char('#'), at).expect("repite el error");
+        assert_eq!(t.weak_keys()[0], text[1]);
+        t.restart().expect("reintento");
+        assert_eq!(t.weak_keys(), Vec::<char>::new());
     }
 
     #[test]
