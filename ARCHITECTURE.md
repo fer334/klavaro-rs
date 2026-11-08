@@ -182,7 +182,8 @@ otra carpeta.
     `.exe` portable.
 - `packaging/` tiene el ícono del original (SVG, PNG de 256 px e `.ico`), el `.desktop`, el
   `Info.plist` y el `.wxs`.
-- `.github/workflows/release.yml` corre el script en Linux, macOS (ARM e Intel) y Windows y,
+- `.github/workflows/release.yml` corre el script en Linux, macOS (sólo ARM: el runner Intel
+  tarda demasiado) y Windows y,
   con una etiqueta `v*`, crea un borrador de release con los paquetes y `SHA256SUMS`.
 - Aviso de versión nueva (`update.rs`, función `update`): al abrir, la app consulta
   `releases/latest` del repositorio fijado al compilar con `KLAVARO_RELEASES` (el workflow

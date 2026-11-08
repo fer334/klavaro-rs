@@ -26,10 +26,9 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          # Sin macOS Intel: el runner tarda demasiado. Esas Mac compilan con tools/package.sh.
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
@@ -49,6 +48,10 @@ jobs:
           else
             echo "::warning::sin packaging/updater.pub: la app no se actualizará sola"
           fi
+      # appimagetool valida el .desktop con desktop-file-validate.
+      - name: Herramientas de la AppImage
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq desktop-file-utils >/dev/null
       - name: Paquete
         shell: bash
         run: tools/package.sh ${{ matrix.target }}
