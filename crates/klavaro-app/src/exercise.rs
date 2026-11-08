@@ -8,7 +8,7 @@ use klavaro_core::Module;
 use klavaro_core::generators::{LanguageRules, adaptability, basic, fluidity, velocity};
 use klavaro_core::goals::Comment;
 use klavaro_core::keyboard::KeyboardLayout;
-use klavaro_core::progression::{Milestone, NextStep, Slot};
+use klavaro_core::progression::{LessonResult, Milestone, NextStep, Slot};
 use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
 use klavaro_core::tracker::KeyTracker;
@@ -182,6 +182,45 @@ fn lesson_note(
     (!notes.is_empty()).then(|| notes.join(" · "))
 }
 
+/// Lo que faltó para la próxima meta de estrellas, si falta algo.
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub(crate) fn goal_text(tr: &Translator, result: &LessonResult, accuracy: f64) -> Option<String> {
+    let goal = result.goal(accuracy)?;
+    let stars = goal.stars.to_string();
+    let percent = |value: f64| format!("{value:.0}");
+    Some(match (goal.speed, goal.accuracy) {
+        (Some(speed), None) => {
+            // Redondea hacia arriba para no decir que falta 0,0.
+            let missing = ((speed - result.speed) * 10.0).ceil() / 10.0;
+            tr.tr_args(
+                "sections-goal-speed",
+                &[
+                    ("stars", &stars),
+                    ("speed", &format!("{speed:.1}")),
+                    ("missing", &format!("{missing:.1}")),
+                ],
+            )
+        }
+        (None, Some(needed)) => tr.tr_args(
+            "sections-goal-accuracy",
+            &[
+                ("stars", &stars),
+                ("accuracy", &percent(needed)),
+                ("value", &format!("{accuracy:.1}")),
+            ],
+        ),
+        (Some(speed), Some(needed)) => tr.tr_args(
+            "sections-goal-both",
+            &[
+                ("stars", &stars),
+                ("speed", &format!("{speed:.1}")),
+                ("accuracy", &percent(needed)),
+            ],
+        ),
+        (None, None) => return None,
+    })
+}
+
 /// Mensaje al abrir la aplicación.
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 pub(crate) fn notice_text(tr: &Translator, n: &Notice) -> String {
@@ -275,6 +314,19 @@ mod tests {
             }
             for m in Module::ALL.into_iter().chain([Module::Progression]) {
                 assert!(tr.has(module_key(m)), "{code}: {m:?}");
+            }
+            let lesson = Slot::new(45, 10).expect("lección");
+            for (speed, accuracy) in [(30.0, 99.0), (60.0, 93.0), (30.0, 85.0)] {
+                let result = LessonResult {
+                    slot: lesson,
+                    target_wpm: lesson.target_wpm(),
+                    time_limit: std::time::Duration::ZERO,
+                    speed,
+                    stars: klavaro_core::progression::stars(speed, accuracy, lesson.target_wpm()),
+                };
+                let text = goal_text(&tr, &result, accuracy).expect("meta");
+                assert!(!text.starts_with("sections-"), "{code}: {text}");
+                assert!(!text.contains("{$"), "{code}: {text}");
             }
             let notes = [
                 Recorded::Logged(Some(Rejection::Invalid)),

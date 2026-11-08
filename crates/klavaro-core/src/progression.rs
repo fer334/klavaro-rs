@@ -138,29 +138,44 @@ pub fn speed(chars: usize, elapsed: Duration) -> f64 {
     12.0 * f64::from(u32::try_from(chars).unwrap_or(u32::MAX)) / secs
 }
 
+/// Parte de la meta que hay que alcanzar para cada cantidad de estrellas (la primera es la de 1).
+const SPEED_RATIOS: [f64; MAX_STARS as usize] = [0.0, 0.7, 0.8, 0.9, 1.0];
+
+/// Parte de la meta que pide `stars` estrellas.
+fn speed_ratio(stars: u8) -> f64 {
+    SPEED_RATIOS[usize::from(stars.clamp(1, MAX_STARS) - 1)]
+}
+
+/// Precisión mínima (%) para poder ganar `stars` estrellas.
+pub fn accuracy_for(stars: u8) -> f64 {
+    if stars >= MAX_STARS {
+        FULL_STARS_ACCURACY
+    } else if stars > LOW_ACCURACY_STARS {
+        LOW_ACCURACY
+    } else {
+        0.0
+    }
+}
+
 /// Estrellas de una lección terminada. La velocidad da de 1 a 5 según cuánto de la meta se
 /// alcanzó, con tope por precisión.
 pub fn stars(speed: f64, accuracy: f64, target_wpm: f64) -> u8 {
     let ratio = speed / target_wpm;
-    let by_speed = if ratio >= 1.0 {
-        MAX_STARS
-    } else if ratio >= 0.9 {
-        4
-    } else if ratio >= 0.8 {
-        PASS_STARS
-    } else if ratio >= 0.7 {
-        2
-    } else {
-        1
-    };
-    let cap = if accuracy < LOW_ACCURACY {
-        LOW_ACCURACY_STARS
-    } else if accuracy < FULL_STARS_ACCURACY {
-        MAX_STARS - 1
-    } else {
-        MAX_STARS
-    };
-    by_speed.min(cap)
+    (1..=MAX_STARS)
+        .rev()
+        .find(|&n| ratio >= speed_ratio(n) && accuracy >= accuracy_for(n))
+        .unwrap_or(1)
+}
+
+/// Lo que faltó para la próxima estrella que vale la pena.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Goal {
+    /// Estrellas a las que apunta.
+    pub stars: u8,
+    /// Velocidad necesaria (PPM), si la alcanzada no basta.
+    pub speed: Option<f64>,
+    /// Precisión necesaria (%), si la alcanzada no basta.
+    pub accuracy: Option<f64>,
 }
 
 /// Resultado de una lección terminada.
@@ -190,6 +205,26 @@ impl LessonResult {
             speed,
             stars: stars(speed, stats.accuracy, target_wpm),
         }
+    }
+
+    /// Lo que faltó para la próxima meta: [`PASS_STARS`] si no se llegó, si no una estrella más,
+    /// y [`MAX_STARS`] en la lección que cierra la sección. `None` con todas las estrellas.
+    pub fn goal(&self, accuracy: f64) -> Option<Goal> {
+        if self.stars >= MAX_STARS {
+            return None;
+        }
+        let stars = if self.slot.closes_section() {
+            MAX_STARS
+        } else {
+            (self.stars + 1).max(PASS_STARS)
+        };
+        let ratio = speed_ratio(stars);
+        let min_accuracy = accuracy_for(stars);
+        Some(Goal {
+            stars,
+            speed: (self.speed / self.target_wpm < ratio).then_some(ratio * self.target_wpm),
+            accuracy: (accuracy < min_accuracy).then_some(min_accuracy),
+        })
     }
 }
 
@@ -491,6 +526,58 @@ mod tests {
         assert_eq!(stars(120.0, 89.99, 100.0), 2);
         assert_eq!(stars(70.0, 50.0, 100.0), 2);
         assert_eq!(stars(50.0, 50.0, 100.0), 1);
+    }
+
+    fn result(lesson: Slot, speed: f64, accuracy: f64) -> LessonResult {
+        let target_wpm = lesson.target_wpm();
+        LessonResult {
+            slot: lesson,
+            target_wpm,
+            time_limit: Duration::ZERO,
+            speed,
+            stars: stars(speed, accuracy, target_wpm),
+        }
+    }
+
+    #[test]
+    fn goal_points_to_pass_stars_then_one_more() {
+        let lesson = slot(45, 29);
+        let target = lesson.target_wpm();
+        let goal = |speed, accuracy| result(lesson, speed, accuracy).goal(accuracy);
+
+        let one = goal(target * 0.5, 97.0).expect("meta");
+        assert_eq!(one.stars, PASS_STARS);
+        assert!(near(one.speed.expect("velocidad"), target * 0.8));
+        assert_eq!(one.accuracy, None);
+
+        let three = goal(target * 0.85, 97.0).expect("meta");
+        assert_eq!(three.stars, 4);
+        assert!(near(three.speed.expect("velocidad"), target * 0.9));
+
+        let four = goal(target * 0.95, 97.0).expect("meta");
+        assert_eq!(four.stars, MAX_STARS);
+        assert!(near(four.speed.expect("velocidad"), target));
+
+        let by_accuracy = goal(target * 1.1, 93.0).expect("meta");
+        assert_eq!(by_accuracy.stars, MAX_STARS);
+        assert_eq!(by_accuracy.speed, None);
+        assert_eq!(by_accuracy.accuracy, Some(FULL_STARS_ACCURACY));
+
+        let both = goal(target * 0.75, 88.0).expect("meta");
+        assert_eq!(both.stars, PASS_STARS);
+        assert!(both.speed.is_some());
+        assert_eq!(both.accuracy, Some(LOW_ACCURACY));
+
+        assert_eq!(goal(target, 99.0), None);
+    }
+
+    #[test]
+    fn goal_of_the_last_lesson_is_max_stars() {
+        let lesson = slot(45, LESSONS_PER_SECTION);
+        let goal = result(lesson, lesson.target_wpm() * 0.85, 99.0)
+            .goal(99.0)
+            .expect("meta");
+        assert_eq!(goal.stars, MAX_STARS);
     }
 
     #[test]

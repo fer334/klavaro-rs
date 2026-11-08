@@ -15,6 +15,7 @@ use klavaro_core::progression::{
 use klavaro_data::catalog::CatalogEntry;
 
 use super::{App, Message, ResetStep, action, bar_with_back, card, page_title, stat, top_bar};
+use crate::exercise::goal_text;
 use crate::sections::{
     LESSON_COLUMNS, SECTION_COLUMNS, SectionView, SectionsView, clock, source_name, star_line,
 };
@@ -370,6 +371,9 @@ impl App {
             column![text(star_line(result.stars)).size(30).color(colors.warning),].spacing(4);
         if let Some(note) = &self.note {
             summary = summary.push(text(note.clone()).size(15));
+        }
+        if let Some(goal) = goal_text(tr, &result, outcome.stats.accuracy) {
+            summary = summary.push(text(goal).size(15).color(colors.warning));
         }
         summary = summary.push(text(tr.tr(hint)).size(13).style(style::muted));
         let weak = tutor.weak_keys();
