@@ -1,5 +1,9 @@
 # Paquetes de cada versión. Al subir una etiqueta `v*` (por ejemplo `v0.1.0`) compila en los
 # tres sistemas con tools/package.sh y crea un borrador de release en GitHub con los archivos.
+# Si está el secreto UPDATER_PRIVATE_KEY, firma los paquetes que se actualizan solos y agrega el
+# latest.json que consulta la app (tools/update-manifest.sh); la clave pública, que se embebe en
+# la app, sale de packaging/updater.pub. Las copias instaladas sólo se enteran al publicar el
+# borrador.
 # También se puede lanzar a mano (workflow_dispatch): entonces sólo deja los paquetes como
 # artefactos del workflow, sin release.
 name: Release
@@ -37,6 +41,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      - name: Clave pública de las actualizaciones
+        shell: bash
+        run: |
+          if [ -f packaging/updater.pub ]; then
+            echo "KLAVARO_UPDATE_PUBKEY=$(base64 < packaging/updater.pub | tr -d '\r\n')" >> "$GITHUB_ENV"
+          else
+            echo "::warning::sin packaging/updater.pub: la app no se actualizará sola"
+          fi
       - name: Paquete
         shell: bash
         run: tools/package.sh ${{ matrix.target }}
@@ -53,10 +65,31 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      - name: Etiqueta y versión
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          [ "$GITHUB_REF_NAME" = "v$version" ] || {
+            echo "::error::la etiqueta $GITHUB_REF_NAME no coincide con la versión $version de Cargo.toml"
+            exit 1
+          }
+      - name: Firmas y latest.json
+        env:
+          UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
+        run: |
+          if [ -z "$UPDATER_PRIVATE_KEY" ]; then
+            echo "::warning::sin el secreto UPDATER_PRIVATE_KEY: no se publica latest.json"
+            exit 0
+          fi
+          sudo apt-get update -qq && sudo apt-get install -y -qq minisign >/dev/null
+          key="$RUNNER_TEMP/updater.key"
+          printf '%s\n' "$UPDATER_PRIVATE_KEY" > "$key"
+          tools/update-manifest.sh dist "$GITHUB_REPOSITORY" "$key"
+          rm -f "$key"
       - name: Sumas SHA-256
         run: cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v2

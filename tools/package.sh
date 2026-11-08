@@ -4,15 +4,21 @@
 # Compila klavaro-rs en modo release y arma los paquetes del sistema actual en dist/:
 #
 #   macOS:   klavaro-rs-<versión>-macos-<arq>.dmg con klavaro-rs.app (sin firmar) y el atajo a
-#            Aplicaciones para instalarla arrastrándola
-#   Linux:   klavaro-rs-<versión>-linux-<arq>.tar.gz con bin/, share/applications e ícono, y
-#            klavaro-rs_<versión>_<arq-debian>.deb (si hay dpkg-deb)
+#            Aplicaciones para instalarla arrastrándola, y
+#            klavaro-rs-<versión>-macos-<arq>.app.tar.gz (la misma app, para la actualización
+#            automática)
+#   Linux:   klavaro-rs-<versión>-linux-<arq>.tar.gz con bin/, share/applications e ícono,
+#            klavaro-rs_<versión>_<arq-debian>.deb (si hay dpkg-deb) y
+#            klavaro-rs-<versión>-linux-<arq>.AppImage (se actualiza sola; baja appimagetool)
 #   Windows: klavaro-rs-<versión>-windows-<arq>.msi (instalador, WiX 5) y
 #            klavaro-rs-<versión>-windows-<arq>.exe (portable), desde Git Bash o MSYS2
 #
 # Uso: tools/package.sh [TRIPLE]   (por defecto, el del sistema)
 #
 # Los datos de assets/ van embebidos en el binario, así que los paquetes no los incluyen aparte.
+#
+# Los paquetes que se actualizan solos (.app.tar.gz, .msi y .AppImage) los firma el workflow de
+# releases con tools/update-manifest.sh, que arma también el latest.json.
 
 set -euo pipefail
 
@@ -119,6 +125,28 @@ EOF
     outputs+=("$out")
 }
 
+# AppImage a partir de la carpeta ya armada para el .tar.gz. appimagetool se baja fijado a una
+# versión y corre sin FUSE (APPIMAGE_EXTRACT_AND_RUN), como en los runners de CI.
+appimage() {
+    local tool="target/package/appimagetool-$arch.AppImage"
+    if [ ! -x "$tool" ]; then
+        curl -fsSL -o "$tool" \
+            "https://github.com/AppImage/appimagetool/releases/download/1.9.0/appimagetool-$arch.AppImage"
+        chmod +x "$tool"
+    fi
+    local dir="target/package/klavaro-rs.AppDir"
+    rm -rf "$dir"
+    mkdir -p "$dir/usr"
+    cp -R "$stage/bin" "$stage/share" "$dir/usr/"
+    cp packaging/linux/io.sourceforge.klavaro-rs.desktop "$dir/"
+    cp packaging/klavaro-rs.png "$dir/klavaro-rs.png"
+    ln -s usr/bin/klavaro-rs "$dir/AppRun"
+    local out="dist/$name.AppImage"
+    rm -f "$out"
+    APPIMAGE_EXTRACT_AND_RUN=1 ARCH="$arch" "$tool" --no-appstream "$dir" "$out" >/dev/null
+    outputs+=("$out")
+}
+
 case "$os" in
     macos)
         app="$stage/klavaro-rs.app/Contents"
@@ -145,6 +173,11 @@ case "$os" in
         hdiutil create -volname klavaro-rs -srcfolder "$stage" -fs HFS+ -format UDZO \
             -ov "$out" >/dev/null
         outputs+=("$out")
+        # La app sola, para la actualización automática (el actualizador espera el .app en la
+        # raíz del archivo).
+        out="dist/$name.app.tar.gz"
+        COPYFILE_DISABLE=1 tar -C "$stage" -czf "$out" klavaro-rs.app
+        outputs+=("$out")
         ;;
     linux)
         mkdir -p "$stage/bin" "$stage/share/applications" \
@@ -154,6 +187,7 @@ case "$os" in
         cp packaging/klavaro-rs.svg "$stage/share/icons/hicolor/scalable/apps/"
         cp packaging/klavaro-rs.png "$stage/share/icons/hicolor/256x256/apps/"
         deb
+        appimage
         docs "$stage"
         tar -C target/package -czf "dist/$name.tar.gz" "$name"
         outputs+=("dist/$name.tar.gz")

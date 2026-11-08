@@ -174,9 +174,9 @@ otra carpeta.
 - `tools/package.sh [TRIPLE]` compila en release (LTO, `strip`) y arma en `dist/` los
   paquetes del sistema:
   - macOS: `.dmg` con `klavaro-rs.app` y el atajo a Aplicaciones (`hdiutil`; ícono `.icns`
-    generado con `sips` e `iconutil`).
-  - Linux: `.tar.gz` con `bin/` y `share/`, y `.deb` (`dpkg-deb`, dependencias calculadas con
-    `dpkg-shlibdeps`).
+    generado con `sips` e `iconutil`), y la misma app en `.app.tar.gz` para el actualizador.
+  - Linux: `.tar.gz` con `bin/` y `share/`, `.deb` (`dpkg-deb`, dependencias calculadas con
+    `dpkg-shlibdeps`) y `.AppImage` (`appimagetool` 1.9.0, que el script baja).
   - Windows: instalador `.msi` (WiX 5, `packaging/windows/klavaro-rs.wxs`: Archivos de
     programa, acceso directo en el menú Inicio, actualización sobre la versión anterior) y el
     `.exe` portable.
@@ -188,5 +188,15 @@ otra carpeta.
   `releases/latest` del repositorio fijado al compilar con `KLAVARO_RELEASES` (el workflow
   usa `github.repository`) y, si hay una versión mayor, muestra un aviso con el enlace. Los
   borradores no cuentan hasta publicarlos. Se desactiva en Preferencias.
+- Actualización automática (`update.rs`, con `cargo-packager-updater`): si la copia está
+  en un `.app`, se instaló con el `.msi` o es la AppImage, el aviso ofrece «Actualizar». La app
+  baja `releases/latest/download/latest.json`, descarga el paquete de su plataforma, verifica
+  la firma minisign con la clave pública embebida al compilar (`KLAVARO_UPDATE_PUBKEY`, que el
+  workflow toma de `packaging/updater.pub`), lo instala y se vuelve a abrir. El `.exe`
+  portable, el `.deb` y el `.tar.gz` siguen con el enlace de descarga.
+  - Claves: `tools/update-keys.sh RUTA` las genera una vez; la pública va en
+    `packaging/updater.pub` y la secreta en el secreto `UPDATER_PRIVATE_KEY` de GitHub.
+  - Al publicar, el workflow firma los paquetes y arma `latest.json` con
+    `tools/update-manifest.sh`. Sin el secreto no hay `latest.json` y nadie se actualiza solo.
 - Pendiente: firma y notarización en macOS, firma, ícono del `.exe` y ventana sin consola en
   Windows, y Flatpak.
