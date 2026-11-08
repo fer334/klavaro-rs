@@ -10,6 +10,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::advanced::input_method;
 use iced::keyboard::{self, key::Named};
+use iced::mouse;
 use iced::widget::operation::{self, RelativeOffset};
 use iced::widget::text::Span;
 use iced::widget::{
@@ -121,6 +122,8 @@ enum ResetStep {
     Done,
 }
 
+// Las banderas (tema, dictado, instalación, puntero) son independientes entre sí.
+#[allow(clippy::struct_excessive_bools)]
 struct App {
     screen: Screen,
     languages: Vec<String>,
@@ -161,6 +164,8 @@ struct App {
     milestone: Option<Milestone>,
     /// En qué paso está el botón de reiniciar la Progresión en Preferencias.
     reset: ResetStep,
+    /// Si el puntero está oculto porque se está tecleando (vuelve al mover el mouse).
+    cursor_hidden: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +237,8 @@ enum Message {
     ResetCancel,
     /// Cambia la sección del gráfico de la Progresión.
     ProgressSection(i32),
+    /// Se movió o se usó el mouse: vuelve a mostrar el puntero.
+    MouseMoved,
 }
 
 impl App {
@@ -289,6 +296,7 @@ impl App {
             bests: BTreeMap::new(),
             milestone: None,
             reset: ResetStep::Idle,
+            cursor_hidden: false,
         };
         app.load_tracker();
         app.load_lessons();
@@ -568,10 +576,15 @@ impl App {
         style::theme(self.dark)
     }
 
-    // iced pide `Fn(&State)`.
-    #[allow(clippy::unused_self)]
     fn subscription(&self) -> Subscription<Message> {
-        event::listen_with(on_event)
+        let keys = event::listen_with(on_event);
+        // El mouse sólo se escucha mientras el puntero está oculto, para no redibujar con
+        // cada movimiento.
+        if self.cursor_hidden {
+            Subscription::batch([keys, event::listen_with(on_mouse)])
+        } else {
+            keys
+        }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -654,8 +667,7 @@ impl App {
                 }
                 Ok(())
             }
-            Message::Key(input) => self.key(input),
-            Message::Typed(text) => text.chars().try_for_each(|c| self.key(Input::Char(c))),
+            m @ (Message::Key(_) | Message::Typed(_) | Message::MouseMoved) => self.update_input(m),
             // Se atienden al principio porque devuelven una tarea.
             Message::FingerTip | Message::InstallUpdate | Message::UpdateInstalled(_) => Ok(()),
         };
@@ -1158,11 +1170,37 @@ impl App {
         if let (Screen::Menu, Some(r)) = (&self.screen, &self.release) {
             page = page.push(self.release_banner(r));
         }
-        container(page.push(body))
+        let page = container(page.push(body))
             .padding(24)
             .width(Length::Fill)
-            .height(Length::Fill)
+            .height(Length::Fill);
+        if self.cursor_hidden && matches!(self.screen, Screen::Tutor(_)) {
+            // Una capa vacía encima de todo pide ocultar el puntero, aunque esté sobre un botón.
+            stack![
+                page,
+                iced::widget::mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+                    .interaction(mouse::Interaction::Hidden),
+            ]
             .into()
+        } else {
+            page.into()
+        }
+    }
+
+    /// Teclas y mouse: al teclear en un ejercicio se oculta el puntero; al mover el mouse vuelve.
+    fn update_input(&mut self, message: Message) -> std::io::Result<()> {
+        if matches!(message, Message::MouseMoved) {
+            self.cursor_hidden = false;
+            return Ok(());
+        }
+        if matches!(self.screen, Screen::Tutor(_)) {
+            self.cursor_hidden = true;
+        }
+        match message {
+            Message::Key(input) => self.key(input),
+            Message::Typed(text) => text.chars().try_for_each(|c| self.key(Input::Char(c))),
+            _ => Ok(()),
+        }
     }
 
     /// Instala la versión nueva en un hilo aparte y, al terminar, abre la nueva y cierra esta.
@@ -2161,6 +2199,20 @@ fn check_release() -> Task<Message> {
 }
 
 /// Traduce los eventos de teclado de iced a acciones del tutor.
+/// Cualquier movimiento o clic del mouse lo vuelve a mostrar.
+// iced pide la firma de `listen_with`.
+#[allow(clippy::needless_pass_by_value)]
+fn on_mouse(event: Event, _status: event::Status, _window: iced::window::Id) -> Option<Message> {
+    match event {
+        Event::Mouse(
+            mouse::Event::CursorMoved { .. }
+            | mouse::Event::ButtonPressed(_)
+            | mouse::Event::WheelScrolled { .. },
+        ) => Some(Message::MouseMoved),
+        _ => None,
+    }
+}
+
 fn on_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
     if matches!(status, event::Status::Captured) {
         return None;
