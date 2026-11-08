@@ -1,9 +1,9 @@
-# Paquetes de cada versión. Al subir una etiqueta `v*` (por ejemplo `v0.1.0`) compila en los
-# tres sistemas con tools/package.sh y crea un borrador de release en GitHub con los archivos.
+# Paquetes de cada versión. Al subir una etiqueta `v*` (por ejemplo `v0.1.0`) corre formato,
+# clippy y pruebas; si pasan, compila en los tres sistemas con tools/package.sh y publica el
+# release en GitHub con los archivos (sin borrador: las copias instaladas lo ven al abrir).
 # Si está el secreto UPDATER_PRIVATE_KEY, firma los paquetes que se actualizan solos y agrega el
 # latest.json que consulta la app (tools/update-manifest.sh); la clave pública, que se embebe en
-# la app, sale de packaging/updater.pub. Las copias instaladas sólo se enteran al publicar el
-# borrador.
+# la app, sale de packaging/updater.pub.
 # También se puede lanzar a mano (workflow_dispatch): entonces sólo deja los paquetes como
 # artefactos del workflow, sin release.
 name: Release
@@ -19,7 +19,23 @@ env:
   KLAVARO_RELEASES: ${{ github.repository }}
 
 jobs:
+  # Lo mismo que el CI: el release se publica solo, así que no sale si algo falla.
+  check:
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo test --workspace
+
   package:
+    needs: check
     strategy:
       fail-fast: false
       matrix:
@@ -97,5 +113,5 @@ jobs:
         run: cd dist && sha256sum * > SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
-          draft: true
+          draft: false
           files: dist/*
