@@ -63,10 +63,16 @@ aparte (`KLAVARO_ASSETS=carpeta` usa otros datos en su lugar).
 - **Linux**: en Debian y Ubuntu, `sudo apt install ./klavaro-rs_<versión>_amd64.deb`. Si no,
   descomprimir el `.tar.gz` y copiar `bin/` y `share/` a `~/.local/` (o a `/usr/local/`);
   incluye el `.desktop` y el ícono.
+- **Linux (AppImage)**: `chmod +x klavaro-rs-<versión>-linux-x86_64.AppImage` y abrirla. Es
+  la única versión de Linux que se actualiza sola.
 - **Windows**: el `.msi` instala en Archivos de programa con un acceso directo en el menú
   Inicio; el `.exe` suelto funciona sin instalar. No están firmados: Windows avisa la primera
   vez («Más información» → «Ejecutar de todas formas»). Se abre también una consola, que usa
   la práctica en la terminal.
+
+La app instalada desde el `.dmg`, el `.msi` o la AppImage avisa cuando hay una versión nueva y
+la instala con el botón «Actualizar» (verifica la firma del paquete antes). Las demás copias
+muestran el aviso con el enlace de descarga.
 
 Para el modo dictado hace falta `espeak-ng` o `espeak` (en macOS alcanza con `say`).
 

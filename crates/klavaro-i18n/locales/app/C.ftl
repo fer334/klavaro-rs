@@ -53,6 +53,9 @@ progress-session-one = Last session · { $first }
 settings-check-updates = Tell me when a new version is out
 update-available = A new version of klavaro-rs is available: { $version } (you have { $current }).
 update-download = Download
+update-install = Update
+update-installing = Downloading and installing version { $version }…
+update-failed = The update failed: { $error }. You can download it manually.
 
 ## Progression.
 

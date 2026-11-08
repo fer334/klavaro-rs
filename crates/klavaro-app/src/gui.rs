@@ -151,6 +151,8 @@ struct App {
     tip_waiting: bool,
     /// Versión nueva publicada, si la hay.
     release: Option<Release>,
+    /// Si se está descargando e instalando la versión nueva.
+    installing: bool,
     /// Progresión: estrellas de cada lección.
     ladder: Ladder,
     /// Progresión: mejores resultados de cada lección.
@@ -200,6 +202,10 @@ enum Message {
     ReleaseFound(Option<Release>),
     /// Abre la página de la versión nueva.
     OpenRelease,
+    /// Descarga e instala la versión nueva.
+    InstallUpdate,
+    /// Terminó la instalación (o el error, para mostrarlo).
+    UpdateInstalled(Result<(), String>),
     /// Abre la selección de sección de la Progresión.
     OpenSections,
     /// Abre las lecciones de una sección.
@@ -278,6 +284,7 @@ impl App {
             finger_tip: None,
             tip_waiting: false,
             release: None,
+            installing: false,
             ladder: Ladder::default(),
             bests: BTreeMap::new(),
             milestone: None,
@@ -571,6 +578,12 @@ impl App {
         if matches!(message, Message::FingerTip) {
             return self.finger_tip();
         }
+        if matches!(
+            message,
+            Message::InstallUpdate | Message::UpdateInstalled(_)
+        ) {
+            return self.install_update(message);
+        }
         let result = match message {
             Message::Start(module) => self.start(module),
             m @ (Message::InterfaceSelected(_)
@@ -643,8 +656,8 @@ impl App {
             }
             Message::Key(input) => self.key(input),
             Message::Typed(text) => text.chars().try_for_each(|c| self.key(Input::Char(c))),
-            // Se atiende al principio porque devuelve una tarea.
-            Message::FingerTip => Ok(()),
+            // Se atienden al principio porque devuelven una tarea.
+            Message::FingerTip | Message::InstallUpdate | Message::UpdateInstalled(_) => Ok(()),
         };
         if let Err(e) = result {
             self.error = Some(e.to_string());
@@ -1152,23 +1165,66 @@ impl App {
             .into()
     }
 
-    /// Aviso de versión nueva, con el botón para ir a descargarla.
+    /// Instala la versión nueva en un hilo aparte y, al terminar, abre la nueva y cierra esta.
+    fn install_update(&mut self, message: Message) -> Task<Message> {
+        match message {
+            Message::InstallUpdate if !self.installing => {
+                self.installing = true;
+                self.error = None;
+                let (tx, rx) = iced::futures::channel::oneshot::channel();
+                std::thread::spawn(move || {
+                    let _ = tx.send(update::install());
+                });
+                Task::perform(rx, |r| {
+                    Message::UpdateInstalled(r.unwrap_or_else(|_| Err("cancelado".to_owned())))
+                })
+            }
+            Message::UpdateInstalled(Ok(())) => {
+                update::relaunch();
+                iced::exit()
+            }
+            Message::UpdateInstalled(Err(e)) => {
+                self.installing = false;
+                self.error = Some(self.tr.tr_args("update-failed", &[("error", &e)]));
+                Task::none()
+            }
+            _ => Task::none(),
+        }
+    }
+
+    /// Aviso de versión nueva, con el botón para instalarla (si esta copia puede) y el de ir a
+    /// descargarla.
     fn release_banner<'a>(&self, release: &Release) -> Element<'a, Message> {
         let tr = &self.tr;
-        let message = tr.tr_args(
-            "update-available",
-            &[("version", &release.version), ("current", update::CURRENT)],
-        );
+        let message = if self.installing {
+            tr.tr_args("update-installing", &[("version", &release.version)])
+        } else {
+            tr.tr_args(
+                "update-available",
+                &[("version", &release.version), ("current", update::CURRENT)],
+            )
+        };
+        let can_install = update::can_install();
+        let download = button(text(tr.tr("update-download")).size(14))
+            .style(if can_install {
+                style::secondary
+            } else {
+                style::primary
+            })
+            .padding([6, 14])
+            .on_press_maybe((!self.installing).then_some(Message::OpenRelease));
+        let install = can_install.then(|| {
+            button(text(tr.tr("update-install")).size(14))
+                .style(style::primary)
+                .padding([6, 14])
+                .on_press_maybe((!self.installing).then_some(Message::InstallUpdate))
+        });
         container(
-            row![
-                text(message).size(14).width(Length::Fill),
-                button(text(tr.tr("update-download")).size(14))
-                    .style(style::primary)
-                    .padding([6, 14])
-                    .on_press(Message::OpenRelease),
-            ]
-            .spacing(12)
-            .align_y(Alignment::Center),
+            row![text(message).size(14).width(Length::Fill)]
+                .push(install)
+                .push(download)
+                .spacing(12)
+                .align_y(Alignment::Center),
         )
         .padding([8, 14])
         .width(Length::Fill)

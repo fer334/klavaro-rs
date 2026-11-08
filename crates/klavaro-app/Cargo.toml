@@ -20,14 +20,16 @@ iced = { workspace = true, optional = true }
 ureq = { version = "3", features = ["json"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
+cargo-packager-updater = { version = "0.2.3", optional = true }
 
 [features]
 default = ["gui", "update"]
 # Interfaz gráfica. Sin ella (`--no-default-features`) queda sólo la práctica en terminal,
 # útil para compilar y probar sin descargar iced.
 gui = ["dep:iced"]
-# Aviso de versión nueva: consulta el último release en GitHub (ver `update.rs`).
-update = ["dep:ureq", "dep:serde", "dep:serde_json"]
+# Aviso de versión nueva: consulta el último release en GitHub y, donde se puede, instala la
+# actualización firmada (ver `update.rs`).
+update = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:cargo-packager-updater"]
 
 [lints]
 workspace = true
