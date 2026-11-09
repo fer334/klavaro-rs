@@ -45,7 +45,9 @@ use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
 use crate::strokes::{KeyId, Stroke};
 use crate::style;
-use crate::tutor::{Direction, Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
+use crate::tutor::{
+    Direction, FLASH_LEVELS, Input, NamedKey, Segment, SegmentStyle, Tutor, translate,
+};
 use crate::typing::Typing;
 use crate::update::{self, Release};
 
@@ -183,6 +185,8 @@ enum Message {
     Typed(String, Duration),
     /// Se soltó una tecla física.
     KeyUp(KeyId, Duration),
+    /// Un cuadro mientras hay un destello encendido: sólo sirve para redibujar.
+    FlashTick,
     Back,
     Restart,
     LessonDelta(i32),
@@ -592,26 +596,26 @@ impl App {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let keys = event::listen_with(on_event);
+        let mut subs = vec![event::listen_with(on_event)];
         // El mouse sólo se escucha mientras el puntero está oculto, para no redibujar con
         // cada movimiento.
         if self.cursor_hidden {
-            Subscription::batch([keys, event::listen_with(on_mouse)])
-        } else {
-            keys
+            subs.push(event::listen_with(on_mouse));
         }
+        // Mientras un destello se apaga hay que redibujar en cada cuadro; sin destellos, nada.
+        if let Screen::Tutor(t) = &self.screen
+            && t.flashing(now())
+        {
+            subs.push(iced::window::frames().map(|_| Message::FlashTick));
+        }
+        Subscription::batch(subs)
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
-        if matches!(message, Message::FingerTip) {
-            return self.finger_tip();
-        }
-        if matches!(
-            message,
-            Message::InstallUpdate | Message::UpdateInstalled(_)
-        ) {
-            return self.install_update(message);
-        }
+        let message = match self.early(message) {
+            Ok(m) => m,
+            Err(task) => return task,
+        };
         let result = match message {
             Message::Start(module) => self.start(module),
             m @ (Message::InterfaceSelected(_)
@@ -686,8 +690,11 @@ impl App {
             | Message::Typed(..)
             | Message::KeyUp(..)
             | Message::MouseMoved) => self.update_input(m),
-            // Se atienden al principio porque devuelven una tarea.
-            Message::FingerTip | Message::InstallUpdate | Message::UpdateInstalled(_) => Ok(()),
+            // Se atienden al principio.
+            Message::FlashTick
+            | Message::FingerTip
+            | Message::InstallUpdate
+            | Message::UpdateInstalled(_) => Ok(()),
         };
         if let Err(e) = result {
             self.error = Some(e.to_string());
@@ -705,6 +712,19 @@ impl App {
             }
         };
         Task::batch([tip, self.follow_cursor(), self.follow_grid()])
+    }
+
+    /// Mensajes que devuelven una tarea propia, o ninguna (`FlashTick` sólo pide redibujar):
+    /// se atienden antes que el resto. Los demás vuelven en `Ok`.
+    fn early(&mut self, message: Message) -> Result<Message, Task<Message>> {
+        match message {
+            Message::FlashTick => Err(Task::none()),
+            Message::FingerTip => Err(self.finger_tip()),
+            m @ (Message::InstallUpdate | Message::UpdateInstalled(_)) => {
+                Err(self.install_update(m))
+            }
+            m => Ok(m),
+        }
     }
 
     /// Opciones del menú: idiomas, teclado y colores.
@@ -1509,7 +1529,7 @@ impl App {
 
         let palette = Palette::new(self.dark);
         let spans: Vec<Span<'_, Message>> = tutor
-            .segments()
+            .segments_at(Some(now()))
             .into_iter()
             .map(|s| styled_span(s, &palette))
             .collect();
@@ -1637,6 +1657,7 @@ impl App {
                     progression::time_limit(tutor.correct_letters(), slot),
                     tutor.elapsed(),
                     &tutor.missing_keys(),
+                    tutor.streak(),
                 )
             });
             let ratio = done as f32 / total.max(1) as f32;
@@ -2168,6 +2189,8 @@ struct Palette {
     cursor: Color,
     cursor_bg: Color,
     untouched: Color,
+    /// Fondo del destello de una transición fluida, con su intensidad máxima.
+    flash_bg: Color,
 }
 
 impl Palette {
@@ -2184,6 +2207,10 @@ impl Palette {
             cursor: if dark { c.background } else { Color::WHITE },
             cursor_bg: c.primary,
             untouched: c.text,
+            flash_bg: Color {
+                a: if dark { 0.45 } else { 0.32 },
+                ..c.success
+            },
         }
     }
 }
@@ -2196,6 +2223,10 @@ fn styled_span(segment: Segment, p: &Palette) -> Span<'static, Message> {
         SegmentStyle::Wrong => s.color(p.wrong).background(p.wrong_bg),
         SegmentStyle::Retouched => s.color(p.retouched),
         SegmentStyle::Cursor => s.color(p.cursor).background(p.cursor_bg),
+        SegmentStyle::Flash(level) => s.color(p.correct).background(Color {
+            a: p.flash_bg.a * f32::from(level) / f32::from(FLASH_LEVELS),
+            ..p.flash_bg
+        }),
     }
 }
 

@@ -118,7 +118,17 @@ pub(crate) enum SegmentStyle {
     Retouched,
     /// Posición del cursor.
     Cursor,
+    /// Bien, y cerró una transición fluida hace un instante. El nivel (1 a
+    /// [`FLASH_LEVELS`]) baja mientras el destello se apaga.
+    Flash(u8),
 }
+
+/// Cuánto dura el destello de una transición fluida.
+pub(crate) const FLASH: Duration = Duration::from_millis(250);
+/// Niveles de intensidad del destello, del más tenue al más fuerte.
+pub(crate) const FLASH_LEVELS: u8 = 4;
+/// Racha mínima que se muestra mientras se escribe.
+pub(crate) const STREAK_MIN: u32 = 5;
 
 /// Tramo de texto con un mismo estilo.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,6 +196,10 @@ pub(crate) struct Tutor {
     strokes: Option<StrokeLog>,
     /// Dedos de cada tecla, para clasificar las transiciones (si se pudieron leer).
     fingers: Option<FingerMap>,
+    /// Letras que cerraron una transición fluida y cuándo, para el destello.
+    flashes: Vec<(usize, Duration)>,
+    /// Transiciones fluidas seguidas hasta la última letra.
+    streak: u32,
 }
 
 /// Variable de entorno que, si está definida, imprime los tiempos de cada letra al terminar
@@ -220,6 +234,8 @@ impl Tutor {
             .flatten();
         Ok(Self {
             fingers,
+            flashes: Vec::new(),
+            streak: 0,
             spec,
             layout,
             goals,
@@ -360,6 +376,8 @@ impl Tutor {
         let text = exercise::generate(&self.spec, &self.layout, self.seed, weak)?;
         self.session = Session::new(self.spec.module, &text);
         self.strokes = stroke_log(self.spec.module, &self.session);
+        self.flashes.clear();
+        self.streak = 0;
         self.outcome = None;
         self.mistakes.clear();
         self.typo_open = false;
@@ -406,6 +424,12 @@ impl Tutor {
             && let Some(log) = &mut self.strokes
         {
             log.down(before, stroke);
+            if !effect.finished {
+                self.update_flow(before, stroke.at);
+            }
+        } else if matches!(input, Input::Backspace | Input::DeleteWord) {
+            // Corregir corta la racha: la letra reescrita ya no cuenta como fluida.
+            self.streak = 0;
         }
         if effect.finished {
             self.attach_transitions();
@@ -422,6 +446,57 @@ impl Tutor {
         if self.outcome.is_some() {
             self.report_strokes();
         }
+    }
+
+    /// Después de anotar la letra `pos`: si cerró una transición fluida, destella, y la racha
+    /// se actualiza. Se analiza sólo lo escrito hasta esa letra.
+    fn update_flow(&mut self, pos: usize, at: Duration) {
+        let (Some(log), Some(slot)) = (&self.strokes, self.spec.slot) else {
+            return;
+        };
+        let end = pos + 1;
+        let target = self.session.target().get(..end).unwrap_or_default();
+        let states = self.session.states().get(..end).unwrap_or_default();
+        let letters = log.letters(target, states, &self.layout, self.fingers.as_ref());
+        let analysis = transitions::analyze(&letters, slot.target_wpm());
+        let fluent = analysis
+            .transitions
+            .last()
+            .is_some_and(|t| t.at == pos && t.fluent);
+        self.streak = analysis.summary.current_streak;
+        // Los destellos viejos ya no se ven: no hace falta guardarlos.
+        self.flashes.retain(|&(_, t)| at.saturating_sub(t) < FLASH);
+        if fluent {
+            self.flashes.push((pos, at));
+        }
+    }
+
+    /// Intensidad del destello de la letra `i` en el instante `now`, si sigue encendido.
+    fn flash_level(&self, i: usize, now: Duration) -> Option<u8> {
+        let &(_, at) = self.flashes.iter().rev().find(|&&(p, _)| p == i)?;
+        let age = now.checked_sub(at)?;
+        if age >= FLASH {
+            return None;
+        }
+        let left = 1.0 - age.as_secs_f64() / FLASH.as_secs_f64();
+        let levels = f64::from(FLASH_LEVELS);
+        // Entre 1 y FLASH_LEVELS: redondea hacia arriba para no apagarse antes de tiempo.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some((left * levels).ceil().clamp(1.0, levels) as u8)
+    }
+
+    /// Si hay algún destello encendido en `now` (mientras haya, hay que redibujar).
+    pub(crate) fn flashing(&self, now: Duration) -> bool {
+        self.outcome.is_none()
+            && self
+                .flashes
+                .iter()
+                .any(|&(_, at)| now.checked_sub(at).is_some_and(|age| age < FLASH))
+    }
+
+    /// Racha en curso, si alcanza para mostrarla.
+    pub(crate) fn streak(&self) -> Option<u32> {
+        (self.outcome.is_none() && self.streak >= STREAK_MIN).then_some(self.streak)
     }
 
     /// Analiza las transiciones del ejercicio recién terminado.
@@ -559,7 +634,14 @@ impl Tutor {
     }
 
     /// Texto del ejercicio en tramos con estilo. Los saltos de línea se muestran como `¶`.
+    // La interfaz usa `segments_at`; ésta queda para las pruebas.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn segments(&self) -> Vec<Segment> {
+        self.segments_at(None)
+    }
+
+    /// Como [`Tutor::segments`], con los destellos encendidos en el instante `now`.
+    pub(crate) fn segments_at(&self, now: Option<Duration>) -> Vec<Segment> {
         let cursor = (self.outcome.is_none()).then(|| self.session.cursor());
         let mut out: Vec<Segment> = Vec::new();
         for (i, (&c, &state)) in self
@@ -574,7 +656,9 @@ impl Tutor {
             } else {
                 match state {
                     CharState::Untouched => SegmentStyle::Untouched,
-                    CharState::Correct => SegmentStyle::Correct,
+                    CharState::Correct => now
+                        .and_then(|now| self.flash_level(i, now))
+                        .map_or(SegmentStyle::Correct, SegmentStyle::Flash),
                     CharState::Wrong => SegmentStyle::Wrong,
                     CharState::Retouched => SegmentStyle::Retouched,
                 }
@@ -1077,5 +1161,103 @@ mod tests {
         let timings = t.strokes().expect("registro").timings();
         assert_eq!(timings.len(), t.text().chars().count());
         assert!(timings.iter().all(Option::is_none));
+    }
+
+    /// Escribe las primeras `n` letras con teclas físicas, una cada `ms`, soltando cada una
+    /// 60 ms después. Devuelve el instante de la última.
+    fn type_first(t: &mut Tutor, n: usize, ms: u64) -> Duration {
+        let text: Vec<char> = t.text().chars().take(n).collect();
+        let mut at = Duration::ZERO;
+        for (i, &c) in text.iter().enumerate() {
+            let i = i as u64;
+            at = Duration::from_millis(ms * i);
+            t.handle_stroke(Input::Char(c), stroke(ms * i, i, false))
+                .expect("tecla");
+            t.key_up(KeyId(i), at + Duration::from_millis(60));
+        }
+        at
+    }
+
+    fn flashes(t: &Tutor, now: Duration) -> Vec<SegmentStyle> {
+        t.segments_at(Some(now))
+            .into_iter()
+            .map(|s| s.style)
+            .filter(|s| matches!(s, SegmentStyle::Flash(_)))
+            .collect()
+    }
+
+    #[test]
+    fn a_fluent_transition_flashes_and_fades() {
+        let mut t = lesson_tutor(20, 30);
+        let last = type_first(&mut t, 3, 100);
+        // Recién escrita, la letra destella con la intensidad máxima.
+        assert!(t.flashing(last));
+        assert_eq!(
+            flashes(&t, last).last(),
+            Some(&SegmentStyle::Flash(FLASH_LEVELS))
+        );
+        // Se va apagando y a los 250 ms ya no está.
+        assert_eq!(
+            flashes(&t, last + Duration::from_millis(200)).last(),
+            Some(&SegmentStyle::Flash(1))
+        );
+        assert_eq!(flashes(&t, last + FLASH), Vec::new());
+        assert!(!t.flashing(last + FLASH));
+        // Sin instante (las pruebas de siempre) no hay destellos.
+        assert!(
+            !t.segments()
+                .iter()
+                .any(|s| matches!(s.style, SegmentStyle::Flash(_)))
+        );
+    }
+
+    #[test]
+    fn slow_or_wrong_letters_do_not_flash() {
+        // A 20 PPM el umbral entre manos es 432 ms y en la misma mano 480 ms.
+        let mut slow = lesson_tutor(20, 30);
+        let last = type_first(&mut slow, 3, 1000);
+        assert!(!slow.flashing(last));
+
+        let mut wrong = lesson_tutor(20, 30);
+        type_first(&mut wrong, 2, 100);
+        let at = Duration::from_millis(200);
+        wrong
+            .handle_stroke(Input::Char('#'), stroke(200, 9, false))
+            .expect("tecla");
+        // Sólo sigue encendida la letra anterior (escrita a los 100 ms); la mal escrita no.
+        assert_eq!(flashes(&wrong, at).len(), 1);
+        assert_eq!(wrong.streak(), None);
+    }
+
+    #[test]
+    fn the_streak_shows_from_five_and_backspace_cuts_it() {
+        let mut t = lesson_tutor(20, 30);
+        type_first(&mut t, 5, 100);
+        // Cinco letras son cuatro transiciones: todavía no se muestra.
+        assert_eq!(t.streak(), None);
+        type_first_from(&mut t, 5, 6, 100);
+        assert_eq!(t.streak(), Some(5));
+        t.handle_stroke(Input::Backspace, stroke(700, 99, false))
+            .expect("tecla");
+        assert_eq!(t.streak(), None);
+    }
+
+    /// Escribe las letras `from..to` siguiendo el ritmo de [`type_first`].
+    fn type_first_from(t: &mut Tutor, from: usize, to: usize, ms: u64) {
+        let text: Vec<char> = t.text().chars().collect();
+        for (i, &c) in text.iter().enumerate().take(to).skip(from) {
+            let at = ms * i as u64;
+            t.handle_stroke(Input::Char(c), stroke(at, i as u64, false))
+                .expect("tecla");
+            t.key_up(KeyId(i as u64), Duration::from_millis(at + 60));
+        }
+    }
+
+    #[test]
+    fn other_modules_never_flash() {
+        let mut t = tutor(Module::Velocity);
+        let last = type_first(&mut t, 4, 100);
+        assert!(!t.flashing(last));
+        assert_eq!(t.streak(), None);
     }
 }

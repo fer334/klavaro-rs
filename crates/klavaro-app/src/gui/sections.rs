@@ -292,6 +292,7 @@ impl App {
         limit: std::time::Duration,
         elapsed: std::time::Duration,
         missing: &[char],
+        streak: Option<u32>,
     ) -> Element<'a, Message> {
         let colors = style::Colors::new(self.dark);
         let time = format!("{} / {}", clock(elapsed), clock(limit));
@@ -310,6 +311,16 @@ impl App {
             time.size(15).font(style::BOLD),
         ]
         .spacing(16);
+        if let Some(streak) = streak {
+            line = line.push(
+                text(
+                    self.tr
+                        .tr_args("sections-streak", &[("count", &streak.to_string())]),
+                )
+                .size(15)
+                .color(colors.success),
+            );
+        }
         if !missing.is_empty() {
             let keys: String = missing.iter().collect();
             line = line.push(

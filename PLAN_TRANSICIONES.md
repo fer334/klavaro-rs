@@ -274,6 +274,21 @@ Hecha.
 - Sin destellos vivos la app no redibuja por su cuenta (medido con el uso de CPU en reposo).
 - Se lee bien en tema claro y oscuro.
 
+### Resultado
+
+Hecha.
+
+- Con cada letra escrita, el tutor analiza lo escrito hasta ahí con `transitions::analyze`. Si
+  esa letra cerró una transición fluida, la letra destella. El destello es un fondo verde (el
+  color de «bien») que se apaga en 250 ms, en cuatro niveles. La retención de la tecla anterior
+  todavía puede no conocerse; en ese caso decide el IKI y el resumen final usa la evaluación
+  completa.
+- `window::frames()` se suscribe sólo mientras hay un destello encendido, y cada cuadro
+  (`FlashTick`) vuelve sin hacer nada más que redibujar.
+- La racha aparece en el pie de la lección, junto a la meta y el tiempo, desde 5 transiciones
+  fluidas seguidas. Un error, una letra sin tiempos o Backspace la cortan.
+- Los demás módulos no destellan ni muestran racha.
+
 ## Fase 5: calibración
 
 ### Tareas

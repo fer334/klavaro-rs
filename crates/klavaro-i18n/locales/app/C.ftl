@@ -75,6 +75,7 @@ sections-transitions = Fluent transitions: { $fluent } of { $measured } ({ $perc
 sections-transitions-more = +{ $count } fluent transitions compared with last time, without losing accuracy
 sections-transitions-more-percent = +{ $points } points of fluent transitions compared with your last lesson, without losing accuracy
 sections-transitions-less-accurate = More fluent transitions than last time, but accuracy dropped
+sections-streak = Streak: { $count } fluent transitions
 sections-transitions-rollover = Rollover (next key pressed before releasing the previous one): { $percent } % of transitions
 sections-space = Space
 sections-practice = Practice weak keys

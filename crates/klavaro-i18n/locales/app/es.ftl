@@ -103,6 +103,7 @@ sections-transitions = Transiciones fluidas: { $fluent } de { $measured } ({ $pe
 sections-transitions-more = +{ $count } transiciones fluidas respecto de la vez anterior, sin perder precisión
 sections-transitions-more-percent = +{ $points } puntos de transiciones fluidas respecto de tu última lección, sin perder precisión
 sections-transitions-less-accurate = Más transiciones fluidas que la vez anterior, pero bajó la precisión
+sections-streak = Racha: { $count } transiciones fluidas
 sections-transitions-rollover = Rollover (apretar la tecla siguiente antes de soltar la anterior): { $percent } % de las transiciones
 sections-space = Espacio
 sections-practice = Practicar teclas débiles
