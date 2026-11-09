@@ -29,6 +29,8 @@ mod sections;
 mod settings;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 mod speech;
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+mod strokes;
 #[cfg(feature = "gui")]
 mod style;
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]

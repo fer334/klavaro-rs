@@ -6,6 +6,8 @@
 mod sections;
 
 use std::collections::BTreeMap;
+use std::hash::{Hash, Hasher};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use iced::advanced::input_method;
@@ -41,6 +43,7 @@ use crate::progress::{Chart, ChartQuery, Metric};
 use crate::sections::{LESSONS_LANGUAGE, SectionView, SectionsView};
 use crate::settings::{GoalField, SettingsForm};
 use crate::speech::{Say, spoken};
+use crate::strokes::{KeyId, Stroke};
 use crate::style;
 use crate::tutor::{Direction, Input, NamedKey, Segment, SegmentStyle, Tutor, translate};
 use crate::typing::Typing;
@@ -139,7 +142,6 @@ struct App {
     notice: Option<String>,
     profile: Profile,
     tr: Translator,
-    clock: Instant,
     /// Errores y tiempos por tecla del teclado elegido. Durante un ejercicio, el tutor tiene
     /// la copia al día ([`App::leave_tutor`] la recupera).
     tracker: KeyTracker,
@@ -174,9 +176,13 @@ enum Message {
     InterfaceSelected(UiLanguage),
     LanguageSelected(String),
     KeyboardSelected(String),
-    Key(Input),
-    /// Texto que entrega el método de entrada (letras combinadas con teclas muertas).
-    Typed(String),
+    /// Una tecla traducida, con el instante en que llegó y su tecla física.
+    Key(Input, Stroke),
+    /// Texto que entrega el método de entrada (letras combinadas con teclas muertas), con el
+    /// instante en que llegó.
+    Typed(String, Duration),
+    /// Se soltó una tecla física.
+    KeyUp(KeyId, Duration),
     Back,
     Restart,
     LessonDelta(i32),
@@ -282,7 +288,6 @@ impl App {
             notice: profile.notice.as_ref().map(|n| notice_text(&tr, n)),
             tr,
             screen: Screen::Menu,
-            clock: Instant::now(),
             profile,
             tracker: KeyTracker::new(),
             audio: Audio::new(Engine::detect()),
@@ -667,7 +672,10 @@ impl App {
                 }
                 Ok(())
             }
-            m @ (Message::Key(_) | Message::Typed(_) | Message::MouseMoved) => self.update_input(m),
+            m @ (Message::Key(..)
+            | Message::Typed(..)
+            | Message::KeyUp(..)
+            | Message::MouseMoved) => self.update_input(m),
             // Se atienden al principio porque devuelven una tarea.
             Message::FingerTip | Message::InstallUpdate | Message::UpdateInstalled(_) => Ok(()),
         };
@@ -1069,11 +1077,11 @@ impl App {
         self.screen = Screen::Top10(entries);
     }
 
-    fn key(&mut self, input: Input) -> std::io::Result<()> {
+    fn key(&mut self, input: Input, stroke: Stroke) -> std::io::Result<()> {
         match &mut self.screen {
             Screen::Tutor(t) => {
                 let was_done = t.outcome().is_some();
-                let effect = t.handle(input, self.clock.elapsed())?;
+                let effect = t.handle_stroke(input, stroke)?;
                 if effect.beep && self.profile.config.beep {
                     self.audio.beep();
                 }
@@ -1197,8 +1205,16 @@ impl App {
             self.cursor_hidden = true;
         }
         match message {
-            Message::Key(input) => self.key(input),
-            Message::Typed(text) => text.chars().try_for_each(|c| self.key(Input::Char(c))),
+            Message::Key(input, stroke) => self.key(input, stroke),
+            Message::Typed(text, at) => text
+                .chars()
+                .try_for_each(|c| self.key(Input::Char(c), Stroke::bare(at))),
+            Message::KeyUp(key, at) => {
+                if let Screen::Tutor(t) = &mut self.screen {
+                    t.key_up(key, at);
+                }
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -2214,21 +2230,49 @@ fn on_mouse(event: Event, _status: event::Status, _window: iced::window::Id) -> 
     }
 }
 
+/// Instante actual, medido desde la primera vez que se pide. Los tiempos de las teclas se
+/// toman al recibir el evento y no al procesar el mensaje, para que no se junten cuando
+/// llegan varios en el mismo cuadro.
+fn now() -> Duration {
+    static START: OnceLock<Instant> = OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
+}
+
+/// Identidad estable de una tecla física.
+fn key_id(physical: keyboard::key::Physical) -> KeyId {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    physical.hash(&mut h);
+    KeyId(h.finish())
+}
+
 fn on_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
+    let at = now();
+    // Las liberaciones se miran aunque otro widget haya capturado el evento: sólo sirven
+    // para medir y no hacen nada fuera de un ejercicio.
+    if let Event::Keyboard(keyboard::Event::KeyReleased { physical_key, .. }) = event {
+        return Some(Message::KeyUp(key_id(physical_key), at));
+    }
     if matches!(status, event::Status::Captured) {
         return None;
     }
     if let Event::InputMethod(input_method::Event::Commit(text)) = event {
-        return Some(Message::Typed(text));
+        return Some(Message::Typed(text, at));
     }
     let Event::Keyboard(keyboard::Event::KeyPressed {
         key,
         modifiers,
         text,
+        physical_key,
+        repeat,
         ..
     }) = event
     else {
         return None;
+    };
+    let stroke = Stroke {
+        at,
+        key: Some(key_id(physical_key)),
+        repeat,
     };
     let named = match key.as_ref() {
         keyboard::Key::Named(Named::Enter) => Some(NamedKey::Enter),
@@ -2250,5 +2294,5 @@ fn on_event(event: Event, status: event::Status, _window: iced::window::Id) -> O
     } else {
         text.map(|t| t.to_string())
     };
-    translate(named, typed.as_deref(), ctrl).map(Message::Key)
+    translate(named, typed.as_deref(), ctrl).map(|input| Message::Key(input, stroke))
 }

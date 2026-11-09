@@ -22,6 +22,7 @@ use klavaro_data::catalog::CatalogEntry;
 use crate::assets;
 use crate::exercise::{self, ExerciseSpec};
 use crate::speech::{self, Say};
+use crate::strokes::{KeyId, Stroke, StrokeLog};
 
 /// Flecha del teclado, para moverse por las grillas de la Progresión.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -173,6 +174,17 @@ pub(crate) struct Tutor {
     mistakes: BTreeMap<char, u32>,
     /// Hay un error sin corregir: lo que se teclee hasta borrarlo no cuenta como otro error.
     typo_open: bool,
+    /// En la Progresión: cuándo se apretó y se soltó la tecla de cada letra. Sólo observa.
+    strokes: Option<StrokeLog>,
+}
+
+/// Variable de entorno que, si está definida, imprime los tiempos de cada letra al terminar
+/// una lección de la Progresión.
+const KEYLOG_ENV: &str = "KLAVARO_KEYLOG";
+
+/// Registro de tiempos para un ejercicio nuevo: sólo en la Progresión.
+fn stroke_log(module: Module, session: &Session) -> Option<StrokeLog> {
+    (module == Module::Progression).then(|| StrokeLog::new(session.target().len()))
 }
 
 impl Tutor {
@@ -191,11 +203,13 @@ impl Tutor {
             .slot
             .map(|slot| assets::lesson(&spec.language, slot))
             .transpose()?;
+        let strokes = stroke_log(spec.module, &session);
         Ok(Self {
             spec,
             layout,
             goals,
             session,
+            strokes,
             outcome: None,
             seed,
             tracker,
@@ -330,6 +344,7 @@ impl Tutor {
             (self.special && self.spec.module == Module::Adaptability).then_some(&self.tracker);
         let text = exercise::generate(&self.spec, &self.layout, self.seed, weak)?;
         self.session = Session::new(self.spec.module, &text);
+        self.strokes = stroke_log(self.spec.module, &self.session);
         self.outcome = None;
         self.mistakes.clear();
         self.typo_open = false;
@@ -363,6 +378,52 @@ impl Tutor {
             Input::DeleteWord => self.press(Key::DeleteWord, at, &mut effect),
         }
         Ok(effect)
+    }
+
+    /// Como [`Tutor::handle`], pero además anota en qué instante y con qué tecla física se
+    /// escribió cada letra. La evaluación es exactamente la misma.
+    pub(crate) fn handle_stroke(&mut self, input: Input, stroke: Stroke) -> io::Result<Effect> {
+        let typing = self.outcome.is_none() && matches!(input, Input::Char(_) | Input::Enter);
+        let before = self.session.cursor();
+        let effect = self.handle(input, stroke.at)?;
+        if typing
+            && self.session.cursor() > before
+            && let Some(log) = &mut self.strokes
+        {
+            log.down(before, stroke);
+        }
+        if effect.finished {
+            self.report_strokes();
+        }
+        Ok(effect)
+    }
+
+    /// Se soltó una tecla física.
+    pub(crate) fn key_up(&mut self, key: KeyId, at: Duration) {
+        if let Some(log) = &mut self.strokes {
+            log.up(key, at);
+        }
+        if self.outcome.is_some() {
+            self.report_strokes();
+        }
+    }
+
+    /// Tiempos de cada letra (sólo en la Progresión).
+    // Lo usan las pruebas y el cálculo de transiciones (Fase 2 de PLAN_TRANSICIONES.md).
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn strokes(&self) -> Option<&StrokeLog> {
+        self.strokes.as_ref()
+    }
+
+    /// Con [`KEYLOG_ENV`] definida, imprime los tiempos una vez que el ejercicio terminó y se
+    /// soltaron todas sus teclas.
+    fn report_strokes(&mut self) {
+        let Some(log) = &mut self.strokes else {
+            return;
+        };
+        if std::env::var_os(KEYLOG_ENV).is_some() && log.take_report() {
+            eprintln!("{}", log.dump(self.session.target(), self.session.states()));
+        }
     }
 
     /// Teclas después de terminar: Enter sigue (y en Básico aprobado, avanza de lección);
@@ -832,5 +893,99 @@ mod tests {
         t.restart().expect("nuevo");
         assert_eq!(t.dictation().map(|d| d.0), Some((1, 0)));
         assert!(tutor(Module::Fluidity).dictation().is_none());
+    }
+
+    fn stroke(ms: u64, key: u64, repeat: bool) -> Stroke {
+        Stroke {
+            at: Duration::from_millis(ms),
+            key: Some(KeyId(key)),
+            repeat,
+        }
+    }
+
+    /// Escribe la lección con teclas físicas: cada letra baja a `ms × i` y se suelta 120 ms
+    /// después, así que con `ms` menor a 120 hay rollover.
+    fn type_lesson_with_keys(t: &mut Tutor, ms: u64) {
+        let text: Vec<char> = t.text().chars().collect();
+        for (i, &c) in text.iter().enumerate() {
+            let i = i as u64;
+            t.handle_stroke(Input::Char(c), stroke(ms * i, i, false))
+                .expect("tecla");
+            if i > 0 {
+                // Se suelta la anterior después de bajar ésta.
+                t.key_up(KeyId(i - 1), Duration::from_millis(ms * (i - 1) + 120));
+            }
+        }
+        let last = text.len() as u64 - 1;
+        t.key_up(KeyId(last), Duration::from_millis(ms * last + 120));
+    }
+
+    #[test]
+    fn a_lesson_records_when_each_letter_was_pressed_and_released() {
+        let mut t = lesson_tutor(20, 30);
+        type_lesson_with_keys(&mut t, 100);
+        let timings = t.strokes().expect("registro").timings();
+        assert_eq!(timings.len(), t.text().chars().count());
+        for (i, timing) in timings.iter().enumerate() {
+            let timing = timing.expect("cada letra tiene tiempos");
+            let down = Duration::from_millis(100 * i as u64);
+            assert_eq!(timing.down, down);
+            assert_eq!(timing.up, Some(down + Duration::from_millis(120)));
+        }
+    }
+
+    #[test]
+    fn recording_keys_does_not_change_the_result() {
+        let mut plain = lesson_tutor(20, 30);
+        type_lesson(&mut plain, 100);
+        let mut keyed = lesson_tutor(20, 30);
+        type_lesson_with_keys(&mut keyed, 100);
+        assert_eq!(plain.outcome(), keyed.outcome());
+        assert!(plain.outcome().is_some());
+    }
+
+    #[test]
+    fn key_repeat_still_types_but_is_not_recorded() {
+        let mut t = lesson_tutor(20, 30);
+        let first = t.text().chars().next().expect("texto");
+        t.handle_stroke(Input::Char(first), stroke(0, 1, true))
+            .expect("tecla");
+        assert_eq!(t.progress().0, 1);
+        assert_eq!(t.strokes().expect("registro").timings()[0], None);
+        assert!(
+            t.strokes()
+                .expect("registro")
+                .dump(t.session.target(), t.session.states())
+                .contains("autorrepetición")
+        );
+    }
+
+    #[test]
+    fn other_modules_do_not_record_keys() {
+        for module in [
+            Module::Basic,
+            Module::Adaptability,
+            Module::Velocity,
+            Module::Fluidity,
+        ] {
+            let mut t = tutor(module);
+            let first = t.text().chars().next().expect("texto");
+            t.handle_stroke(Input::Char(first), stroke(0, 1, false))
+                .expect("tecla");
+            t.key_up(KeyId(1), Duration::from_millis(50));
+            assert!(t.strokes().is_none());
+        }
+    }
+
+    #[test]
+    fn a_new_text_starts_a_new_record() {
+        let mut t = lesson_tutor(20, 30);
+        let first = t.text().chars().next().expect("texto");
+        t.handle_stroke(Input::Char(first), stroke(0, 1, false))
+            .expect("tecla");
+        t.restart().expect("reinicio");
+        let timings = t.strokes().expect("registro").timings();
+        assert_eq!(timings.len(), t.text().chars().count());
+        assert!(timings.iter().all(Option::is_none));
     }
 }
