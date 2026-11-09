@@ -120,16 +120,16 @@ impl Slot {
     }
 }
 
-/// Tiempo máximo para escribir `chars` caracteres a la meta de la lección.
+/// Tiempo máximo para escribir `chars` caracteres a la meta de la lección. Con errores, lo que
+/// cuenta para las estrellas es el tiempo máximo de las letras bien escritas.
 pub fn time_limit(chars: usize, slot: Slot) -> Duration {
     let chars = f64::from(u32::try_from(chars).unwrap_or(u32::MAX));
     Duration::from_secs_f64(12.0 * chars / slot.target_wpm())
 }
 
-/// Velocidad de una lección terminada, en PPM. Una lección sólo termina con todo el texto bien
-/// escrito, así que sale del largo y del tiempo: `velocidad ≥ meta` equivale exactamente a
-/// terminar dentro de [`time_limit`]. No usa las PPM de [`Stats`], que suben un poco si se
-/// escribe mal varias veces la misma letra. Con tiempo 0 devuelve 0.
+/// Velocidad en PPM de `chars` caracteres escritos en `elapsed`: `velocidad ≥ meta` equivale
+/// exactamente a terminar dentro de [`time_limit`] para esos caracteres. Con tiempo 0
+/// devuelve 0.
 pub fn speed(chars: usize, elapsed: Duration) -> f64 {
     let secs = elapsed.as_secs_f64();
     if secs <= 0.0 {
@@ -185,23 +185,24 @@ pub struct LessonResult {
     pub slot: Slot,
     /// Meta de la lección, en PPM.
     pub target_wpm: f64,
-    /// Tiempo máximo.
+    /// Tiempo máximo para las letras bien escritas.
     pub time_limit: Duration,
-    /// Velocidad, en PPM (ver [`speed`]).
+    /// Velocidad neta, en PPM: sólo cuentan las letras bien escritas (ver [`speed`]).
     pub speed: f64,
     /// Estrellas ganadas.
     pub stars: u8,
 }
 
 impl LessonResult {
-    /// Calcula el resultado de un texto de `chars` caracteres.
-    pub fn new(slot: Slot, chars: usize, stats: &Stats) -> Self {
+    /// Calcula el resultado de una lección terminada con `correct` letras bien escritas al
+    /// final (las corregidas cuentan como bien; las que quedaron mal, no).
+    pub fn new(slot: Slot, correct: usize, stats: &Stats) -> Self {
         let target_wpm = slot.target_wpm();
-        let speed = speed(chars, stats.elapsed);
+        let speed = speed(correct, stats.elapsed);
         Self {
             slot,
             target_wpm,
-            time_limit: time_limit(chars, slot),
+            time_limit: time_limit(correct, slot),
             speed,
             stars: stars(speed, stats.accuracy, target_wpm),
         }
@@ -590,45 +591,57 @@ mod tests {
         assert_eq!(stars(late, 100.0, lesson.target_wpm()), 4);
     }
 
-    /// Escribe `text` con el módulo real, con `mistakes` errores corregidos en cada letra
-    /// indicada, en `step` por tecla.
-    fn play(text: &str, wrong_at: &[usize], mistakes: u32, step: Duration) -> Stats {
+    /// Escribe `text` con el módulo real, en `step` por tecla. Las letras de `wrong_at` se
+    /// teclean mal; si `fix`, se borran y se reescriben enseguida. Devuelve las letras bien
+    /// escritas al final y las métricas.
+    fn play(text: &str, wrong_at: &[usize], fix: bool, step: Duration) -> (usize, Stats) {
         let mut s = Session::new(Module::Progression, text);
         let mut at = Duration::ZERO;
         let mut press = |s: &mut Session, key| {
-            let feedback = s.press(key, at);
+            s.press(key, at);
             at += step;
-            feedback
         };
         for (i, c) in text.chars().enumerate() {
             if wrong_at.contains(&i) {
-                for _ in 0..mistakes {
-                    press(&mut s, Key::Char('#'));
-                    press(&mut s, Key::Backspace);
+                press(&mut s, Key::Char('#'));
+                if !fix {
+                    continue;
                 }
+                press(&mut s, Key::Backspace);
             }
             press(&mut s, Key::Char(c));
         }
-        s.result().copied().expect("terminó")
+        let correct = text.chars().count() - s.wrong_letters();
+        (correct, s.result().copied().expect("terminó"))
     }
 
     #[test]
-    fn corrected_mistakes_cost_time_but_not_length() {
+    fn wrong_letters_left_take_letters_off_the_speed() {
         let text = "uno dos tres cuatro cinco seis siete ocho nueve diez";
         let chars = text.chars().count();
         let step = Duration::from_millis(100);
-        let clean = play(text, &[], 0, step);
-        assert!(near(clean.wpm, speed(chars, clean.elapsed)));
+        let lesson = slot(20, 1);
+        let (correct, clean) = play(text, &[], false, step);
+        assert_eq!(correct, chars);
+        let clean_result = LessonResult::new(lesson, correct, &clean);
+        assert!(near(clean_result.speed, speed(chars, clean.elapsed)));
 
-        // Corregir una vez deja las PPM netas igual que la velocidad por tiempo.
-        let once = play(text, &[3, 9], 1, step);
-        assert!(near(once.wpm, speed(chars, once.elapsed)));
-        assert!(once.elapsed > clean.elapsed);
-        assert!(once.accuracy < 100.0);
+        // Un error sin corregir marca sólo su letra y la resta de la velocidad.
+        let (correct, two) = play(text, &[1, 9], false, step);
+        assert_eq!((correct, two.errors), (chars - 2, 2));
+        assert_eq!(two.elapsed, clean.elapsed);
+        let two_result = LessonResult::new(lesson, correct, &two);
+        assert!(near(two_result.speed, speed(chars - 2, two.elapsed)));
+        assert!(two_result.speed < clean_result.speed);
+        assert_eq!(two_result.time_limit, time_limit(chars - 2, lesson));
 
-        // Errar varias veces la misma letra infla las PPM netas: las estrellas no las usan.
-        let repeated = play(text, &[3], 4, step);
-        assert!(repeated.wpm > speed(chars, repeated.elapsed));
+        // Corregir recupera la letra, pero cuesta tiempo y el error sigue contando.
+        let (correct, fixed) = play(text, &[1, 9], true, step);
+        assert_eq!((correct, fixed.errors), (chars, 2));
+        assert!(fixed.elapsed > clean.elapsed);
+        let fixed_result = LessonResult::new(lesson, correct, &fixed);
+        assert!(near(fixed_result.speed, speed(chars, fixed.elapsed)));
+        assert!(fixed_result.speed < clean_result.speed);
     }
 
     #[test]
@@ -636,8 +649,8 @@ mod tests {
         let text = "a".repeat(300);
         let lesson = slot(60, 30);
         // 300 caracteres en 49,9 s: bastante más rápido que la meta.
-        let stats = play(&text, &[], 0, Duration::from_millis(167));
-        let result = LessonResult::new(lesson, 300, &stats);
+        let (correct, stats) = play(&text, &[], false, Duration::from_millis(167));
+        let result = LessonResult::new(lesson, correct, &stats);
         assert_eq!(result.stars, 5);
         assert!(near(result.target_wpm, 60.0));
         assert_eq!(result.time_limit, Duration::from_secs(60));

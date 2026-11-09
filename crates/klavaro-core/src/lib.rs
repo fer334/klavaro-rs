@@ -62,8 +62,24 @@ impl Module {
         }
     }
 
-    /// Si el módulo permite corregir con Backspace.
-    pub const fn allows_correction(self) -> bool {
-        matches!(self, Self::Fluidity | Self::Progression)
+    /// Cómo se evalúa cada tecla en los ejercicios del módulo.
+    pub const fn evaluation(self) -> Evaluation {
+        match self {
+            Self::Basic | Self::Adaptability | Self::Velocity => Evaluation::Forward,
+            Self::Fluidity => Evaluation::Correction,
+            Self::Progression => Evaluation::Free,
+        }
     }
+}
+
+/// Forma de evaluar las teclas de un ejercicio (ver [`session`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Evaluation {
+    /// Cada tecla avanza el cursor; los errores quedan marcados y Backspace se ignora.
+    Forward,
+    /// Tras un error hay que volver con Backspace y reescribir; lo reescrito cuenta como error.
+    Correction,
+    /// Cada tecla avanza el cursor y un error marca sólo su letra. Backspace vuelve atrás para
+    /// corregir, sin ser obligatorio; el error corregido sigue contando.
+    Free,
 }

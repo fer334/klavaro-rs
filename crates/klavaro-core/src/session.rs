@@ -5,17 +5,20 @@
 //! estado `QUERY_INTRO` (texto de introducción y "presione una tecla") es responsabilidad de
 //! la interfaz: una [`Session`] se crea cuando el ejercicio empieza.
 //!
-//! Hay dos modos de evaluación:
+//! Hay tres modos de evaluación ([`Evaluation`]):
 //!
 //! - **Sin corrección** (Básico, Adaptabilidad, Velocidad): cada tecla avanza el cursor; los
 //!   errores quedan marcados y Backspace se ignora.
-//! - **Con corrección** (Fluidez, Progresión): tras un error el cursor sigue avanzando, pero hay que volver
+//! - **Con corrección** (Fluidez): tras un error el cursor sigue avanzando, pero hay que volver
 //!   con Backspace y reescribir; lo reescrito queda como "corregido" y cuenta como error.
+//! - **Libre** (Progresión): cada tecla avanza el cursor y un error marca sólo su letra.
+//!   Backspace vuelve atrás para corregir, pero no es obligatorio: el ejercicio termina al
+//!   teclear la última letra. El error corregido sigue contando.
 
 use std::time::Duration;
 
-use crate::Module;
 use crate::metrics::Stats;
+use crate::{Evaluation, Module};
 
 /// Tecla recibida de la interfaz, ya traducida.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,7 +68,7 @@ pub enum Feedback {
         /// Tecla recibida.
         typed: Key,
     },
-    /// Se borró un carácter (sólo Fluidez).
+    /// Se borró un carácter (Fluidez y Progresión).
     Erased,
     /// Tecla no válida en este momento (Backspace fuera de Fluidez, Backspace sin errores,
     /// teclas después de terminar). El original emite un pitido.
@@ -87,6 +90,8 @@ pub struct Session {
     retro: usize,
     /// Caracteres borrados pendientes de reescribir.
     correcting: usize,
+    /// Letras que se teclearon mal alguna vez (modo libre): al acertarlas quedan corregidas.
+    missed: Vec<bool>,
     started_at: Option<Duration>,
     last_at: Option<Duration>,
     intervals: Vec<Duration>,
@@ -101,6 +106,7 @@ impl Session {
         Self {
             module,
             states: vec![CharState::Untouched; target.len()],
+            missed: vec![false; target.len()],
             target,
             pos: 0,
             touches: 0,
@@ -134,6 +140,14 @@ impl Session {
         self.pos
     }
 
+    /// Letras marcadas como error ahora mismo (las corregidas no cuentan).
+    pub fn wrong_letters(&self) -> usize {
+        self.states
+            .iter()
+            .filter(|&&st| st == CharState::Wrong)
+            .count()
+    }
+
     /// Resultado, si el ejercicio terminó.
     pub fn result(&self) -> Option<&Stats> {
         self.result.as_ref()
@@ -163,10 +177,10 @@ impl Session {
             self.started_at = Some(at);
             self.last_at = Some(at);
         }
-        let feedback = if self.module.allows_correction() {
-            self.eval_with_correction(key, at)
-        } else {
-            self.eval_forward(key, at)
+        let feedback = match self.module.evaluation() {
+            Evaluation::Forward => self.eval_forward(key, at),
+            Evaluation::Correction => self.eval_with_correction(key, at),
+            Evaluation::Free => self.eval_free(key, at),
         };
         if self.pos >= self.target.len() && self.retro == 0 {
             let start = self.started_at.unwrap_or(at);
@@ -256,6 +270,61 @@ impl Session {
         }
     }
 
+    fn eval_free(&mut self, key: Key, at: Duration) -> Feedback {
+        match key {
+            Key::Backspace => {
+                self.mark_time(at);
+                self.step_back()
+            }
+            Key::DeleteWord => {
+                self.mark_time(at);
+                // Borra la palabra actual (y el espacio justo antes del cursor, si lo hay).
+                let mut feedback = self.step_back();
+                while self.pos > 0 && !is_separator(self.target[self.pos - 1]) {
+                    feedback = self.step_back();
+                }
+                feedback
+            }
+            Key::Char(_) | Key::Enter => {
+                let Some(&expected) = self.target.get(self.pos) else {
+                    return Feedback::Ignored;
+                };
+                self.touches += 1;
+                let feedback = if matches_key(expected, key) {
+                    let interval = self.record_interval(at);
+                    if self.missed[self.pos] {
+                        self.states[self.pos] = CharState::Retouched;
+                        Feedback::Retouched { expected }
+                    } else {
+                        self.states[self.pos] = CharState::Correct;
+                        Feedback::Correct { expected, interval }
+                    }
+                } else {
+                    self.states[self.pos] = CharState::Wrong;
+                    self.missed[self.pos] = true;
+                    self.errors += 1;
+                    self.mark_time(at);
+                    Feedback::Wrong {
+                        expected,
+                        typed: key,
+                    }
+                };
+                self.pos += 1;
+                feedback
+            }
+        }
+    }
+
+    /// Vuelve una letra atrás en el modo libre.
+    fn step_back(&mut self) -> Feedback {
+        if self.pos == 0 {
+            return Feedback::Ignored;
+        }
+        self.pos -= 1;
+        self.states[self.pos] = CharState::Untouched;
+        Feedback::Erased
+    }
+
     fn erase_one(&mut self) -> Feedback {
         if self.retro == 0 || self.pos == 0 {
             return Feedback::Ignored;
@@ -293,6 +362,11 @@ fn matches_key(expected: char, key: Key) -> bool {
         Key::Enter => expected == '\n' || expected == ' ',
         Key::Backspace | Key::DeleteWord => false,
     }
+}
+
+/// Si el carácter separa palabras.
+fn is_separator(c: char) -> bool {
+    matches!(c, ' ' | '\n')
 }
 
 #[cfg(test)]
@@ -429,6 +503,80 @@ mod tests {
         let fb = s.press(Key::Char('c'), ms(1_400));
         assert!(matches!(fb, Feedback::Finished(_)));
         assert_eq!(s.intervals, vec![ms(0), ms(100)]);
+    }
+
+    fn type_free(text: &str, typed: &str) -> (Session, Option<Stats>) {
+        let mut s = Session::new(Module::Progression, text);
+        for (i, c) in typed.chars().enumerate() {
+            let key = match c {
+                '<' => Key::Backspace,
+                '\n' => Key::Enter,
+                c => Key::Char(c),
+            };
+            s.press(key, ms(100 * i as u64));
+        }
+        let result = s.result().copied();
+        (s, result)
+    }
+
+    fn states_of(s: &Session) -> String {
+        s.states()
+            .iter()
+            .map(|st| match st {
+                CharState::Untouched => '.',
+                CharState::Correct => 'o',
+                CharState::Wrong => 'x',
+                CharState::Retouched => 'r',
+            })
+            .collect()
+    }
+
+    #[test]
+    fn free_marks_only_the_wrong_letter() {
+        let (s, stats) = type_free("casa mesa", "caxa mesa");
+        let stats = stats.expect("terminó sin corregir");
+        assert_eq!(states_of(&s), "ooxoooooo");
+        assert_eq!((stats.touches, stats.errors), (9, 1));
+        assert_eq!(s.wrong_letters(), 1);
+    }
+
+    #[test]
+    fn free_backspace_corrects_and_the_error_still_counts() {
+        // `x` en vez de `s`, se nota tarde, se borran `a` y `x` y se reescriben.
+        let (s, stats) = type_free("casas", "caxa<<sas");
+        let stats = stats.expect("terminó");
+        assert_eq!(states_of(&s), "ooroo");
+        assert_eq!((stats.touches, stats.errors), (7, 1));
+        assert_eq!(s.wrong_letters(), 0);
+    }
+
+    #[test]
+    fn free_backspace_at_the_start_is_ignored() {
+        let mut s = Session::new(Module::Progression, "ab");
+        assert_eq!(s.press(Key::Backspace, ms(0)), Feedback::Ignored);
+        s.press(Key::Char('a'), ms(100));
+        assert_eq!(s.press(Key::Backspace, ms(200)), Feedback::Erased);
+        assert_eq!(s.cursor(), 0);
+        assert_eq!(states_of(&s), "..");
+    }
+
+    #[test]
+    fn free_delete_word_goes_back_to_the_word_start() {
+        let mut s = Session::new(Module::Progression, "uno dos");
+        for (i, c) in "uno dx".chars().enumerate() {
+            s.press(Key::Char(c), ms(100 * i as u64));
+        }
+        assert_eq!(s.press(Key::DeleteWord, ms(700)), Feedback::Erased);
+        assert_eq!(s.cursor(), 4);
+        assert_eq!(s.press(Key::DeleteWord, ms(800)), Feedback::Erased);
+        assert_eq!(s.cursor(), 0);
+    }
+
+    #[test]
+    fn free_finishes_with_the_last_letter_even_if_wrong() {
+        let (s, stats) = type_free("ab", "ax");
+        assert!(stats.is_some());
+        assert_eq!(s.wrong_letters(), 1);
     }
 
     #[test]

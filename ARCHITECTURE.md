@@ -39,10 +39,13 @@ la importación.
 - `progression.rs` (core) tiene las reglas: 17 secciones de 20 a 100 PPM, cada una con 30 lecciones.
   La sección lleva el nombre de la meta a la que llega, y cada lección pide 1/6 de PPM más que la
   anterior.
-- **Tiempo y velocidad:** el tiempo máximo es `12 × caracteres / meta`. Una lección sólo termina con
-  el texto bien escrito, así que la velocidad sale del largo y del tiempo, y 5 estrellas equivale
-  exactamente a terminar dentro del tiempo. No se usan las PPM de `Stats`, que suben al errar varias
-  veces la misma letra.
+- **Evaluación:** las lecciones usan `Evaluation::Free` (`session.rs`): un error marca sólo su letra
+  y el cursor sigue. Backspace vuelve atrás para corregir, pero no es obligatorio: la lección termina
+  al teclear la última letra. El error corregido sigue contando para la precisión.
+- **Tiempo y velocidad:** la velocidad es neta: `12 × letras bien escritas al final / segundos`; las
+  corregidas cuentan como bien y las que quedaron mal, no. El tiempo máximo es
+  `12 × letras bien escritas / meta`, así que 5 estrellas equivale exactamente a terminar dentro de
+  ese tiempo.
 - **Estrellas:** 5 con `velocidad ≥ meta`, y 4, 3 y 2 con el 90, 80 y 70 %; terminar siempre da 1.
   Con menos de 95 % de precisión el máximo es 4, y con menos de 90 % es 2.
 - **Desbloqueo:** 3 estrellas abren la lección siguiente. Aprobar una sección pide las 30 lecciones
@@ -52,7 +55,8 @@ la importación.
   «Saltada», sin regalar sus estrellas, y sus lecciones quedan abiertas en cualquier orden. La sección
   más alta se guarda en `meta` (`progression_exam_<idioma>`).
 - `sections.rs` (app, sin iced) tiene la selección y `gui/sections.rs` las vistas. Las lecciones usan
-  el `Tutor` con corrección, como Fluidez. El tiempo en pantalla se actualiza con cada tecla.
+  el `Tutor` como los otros módulos. El tiempo en pantalla se actualiza con cada tecla, y el tiempo
+  máximo baja con cada letra que queda mal.
 - Por ahora los ejercicios son sólo en inglés (`LESSONS_LANGUAGE`), sea cual sea el idioma de los
   textos de los otros módulos.
 - El puntaje es el de `metrics::score`. Las sesiones de Progresión entran al historial, pero no

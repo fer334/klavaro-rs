@@ -1607,7 +1607,8 @@ impl App {
             let lesson_status = spec.slot.map(|slot| {
                 self.lesson_status(
                     slot,
-                    progression::time_limit(total, slot),
+                    // Cada letra que queda mal resta: el tiempo máximo es el de las bien escritas.
+                    progression::time_limit(tutor.correct_letters(), slot),
                     tutor.elapsed(),
                     &tutor.missing_keys(),
                 )

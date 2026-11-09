@@ -73,10 +73,11 @@ secciones no duren 3 minutos por lección.
 El tiempo máximo de una lección es `12 × caracteres / meta de la lección` segundos. Por ejemplo,
 360 caracteres a 72 WPM dan 60 s.
 
-Las lecciones usan el modo con corrección de Fluidez: solo terminan con el texto bien escrito. Por
-eso la velocidad se calcula como `12 × caracteres / segundos`, y "terminar dentro del tiempo" y
-"alcanzar la meta" son exactamente la misma condición. No se usan las WPM netas de `Stats`, que
-suben un poco si se erra varias veces la misma letra.
+Las lecciones no obligan a corregir: un error marca sólo su letra, el cursor sigue y Backspace
+permite volver a corregir (ver `PLAN_ERRORES.md`). La velocidad es neta,
+`12 × letras bien escritas al final / segundos`, y el tiempo máximo se calcula con esas mismas
+letras, así que "terminar dentro del tiempo" y "alcanzar la
+meta" siguen siendo exactamente la misma condición.
 
 Las estrellas salen de `r = velocidad / meta de la lección`:
 
@@ -130,7 +131,7 @@ Respeta las reglas de [ARCHITECTURE.md](ARCHITECTURE.md): el core sin E/S, `klav
 
 | Crate | Cambio |
 |---|---|
-| `klavaro-core` | `progression.rs`: constantes, meta por lección, tiempo máximo, estrellas y desbloqueo. `Module::Progression`, que permite corrección y queda fuera de `Module::ALL`. |
+| `klavaro-core` | `progression.rs`: constantes, meta por lección, tiempo máximo, estrellas y desbloqueo. `Module::Progression`, que se evalúa en modo libre y queda fuera de `Module::ALL`. |
 | `klavaro-data` | `catalog.rs`: lee y escribe el catálogo, con errores tipados. |
 | `klavaro-store` | Esquema 3: tabla de intentos y consultas de mejores resultados. |
 | `klavaro-app` | `sections.rs` (estado sin iced, como `settings.rs`) y `gui/sections.rs` (vistas). `Screen::Sections` y `Screen::Section`. |

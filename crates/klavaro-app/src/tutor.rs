@@ -306,6 +306,12 @@ impl Tutor {
         self.tracker.special_session().is_some()
     }
 
+    /// Letras del texto que no están marcadas como error ahora mismo: las escritas bien, las
+    /// corregidas y las que faltan escribir.
+    pub(crate) fn correct_letters(&self) -> usize {
+        self.session.target().len() - self.session.wrong_letters()
+    }
+
     /// Tiempo desde la primera tecla hasta la última.
     pub(crate) fn elapsed(&self) -> Duration {
         self.session.elapsed()
@@ -428,7 +434,7 @@ impl Tutor {
         let lesson = self
             .spec
             .slot
-            .map(|slot| LessonResult::new(slot, self.session.target().len(), &stats));
+            .map(|slot| LessonResult::new(slot, self.correct_letters(), &stats));
         self.outcome = Some(Outcome {
             stats,
             check,
@@ -549,16 +555,51 @@ mod tests {
     }
 
     #[test]
-    fn a_lesson_needs_corrections_to_finish() {
+    fn a_lesson_marks_only_the_wrong_letter_and_backspace_corrects() {
         let mut t = lesson_tutor(20, 1);
-        let first = t.text().chars().next().expect("texto");
+        let text: Vec<char> = t.text().chars().collect();
+        let len = text.len();
         t.handle(Input::Char('#'), Duration::ZERO).expect("tecla");
-        t.handle(Input::Backspace, Duration::from_millis(10))
-            .expect("corrige");
-        assert_eq!(t.progress().0, 0);
-        t.handle(Input::Char(first), Duration::from_millis(20))
+        assert_eq!(t.progress().0, 1, "el cursor sigue tras el error");
+        t.handle(Input::Char(text[1]), Duration::from_millis(10))
             .expect("tecla");
-        assert_eq!(t.progress().0, 1);
+        let segs = t.segments();
+        assert_eq!(segs[0].style, SegmentStyle::Wrong);
+        assert_eq!(segs[1].style, SegmentStyle::Correct);
+        assert_eq!(t.correct_letters(), len - 1);
+
+        // Corregir es opcional: Backspace vuelve atrás y la letra reescrita queda corregida.
+        t.handle(Input::Backspace, Duration::from_millis(20))
+            .expect("borra");
+        t.handle(Input::Backspace, Duration::from_millis(30))
+            .expect("borra");
+        assert_eq!(t.progress().0, 0);
+        t.handle(Input::Char(text[0]), Duration::from_millis(40))
+            .expect("corrige");
+        assert_eq!(t.segments()[0].style, SegmentStyle::Retouched);
+        assert_eq!(t.correct_letters(), len);
+    }
+
+    #[test]
+    fn a_lesson_finishes_with_uncorrected_mistakes_and_net_speed() {
+        let mut t = lesson_tutor(20, 30);
+        let text: Vec<char> = t.text().chars().collect();
+        let mut at = Duration::ZERO;
+        for (i, &c) in text.iter().enumerate() {
+            let c = if i == 0 { '#' } else { c };
+            let key = if c == '\n' {
+                Input::Enter
+            } else {
+                Input::Char(c)
+            };
+            t.handle(key, at).expect("tecla");
+            at += Duration::from_millis(500);
+        }
+        let outcome = t.outcome().expect("terminó");
+        assert_eq!(outcome.stats.errors, 1);
+        let result = outcome.lesson.expect("resultado");
+        let net = klavaro_core::progression::speed(text.len() - 1, outcome.stats.elapsed);
+        assert!((result.speed - net).abs() < 1e-9);
     }
 
     #[test]
@@ -616,14 +657,8 @@ mod tests {
         let at = Duration::ZERO;
         t.handle(Input::Char('#'), at).expect("error");
         t.handle(Input::Char('#'), at).expect("sigue mal");
-        assert_eq!(t.weak_keys(), vec![text[0]], "un solo error, no dos");
-        t.handle(Input::Backspace, at).expect("borra");
-        t.handle(Input::Backspace, at).expect("borra");
-        t.handle(Input::Char(text[0]), at).expect("corrige");
-        t.handle(Input::Char('#'), at).expect("otro error");
-        t.handle(Input::Backspace, at).expect("borra");
-        t.handle(Input::Char('#'), at).expect("repite el error");
-        assert_eq!(t.weak_keys()[0], text[1]);
+        assert_eq!(t.weak_keys(), vec![text[0]], "un solo error por racha");
+        t.handle(Input::Char(text[2]), at).expect("acierto");
         t.restart().expect("reintento");
         assert_eq!(t.weak_keys(), Vec::<char>::new());
     }
