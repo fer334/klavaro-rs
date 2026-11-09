@@ -8,7 +8,9 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use klavaro_core::keyboard::{FingerMap, KeyboardLayout};
 use klavaro_core::session::CharState;
+use klavaro_core::transitions::{Analysis, Letter};
 
 /// Identidad de la tecla física, independiente del framework de interfaz.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -123,12 +125,39 @@ impl StrokeLog {
         }
     }
 
-    /// Tabla legible de los tiempos, para depurar.
-    pub(crate) fn dump(&self, target: &[char], states: &[CharState]) -> String {
+    /// Letras con sus estados, tiempos y dedos, para analizar las transiciones.
+    pub(crate) fn letters(
+        &self,
+        target: &[char],
+        states: &[CharState],
+        layout: &KeyboardLayout,
+        fingers: Option<&FingerMap>,
+    ) -> Vec<Letter> {
+        target
+            .iter()
+            .zip(states)
+            .zip(&self.timings)
+            .map(|((&c, &state), t)| Letter {
+                state,
+                down: t.map(|t| t.down),
+                up: t.and_then(|t| t.up),
+                finger: fingers.and_then(|f| f.finger_for(layout, c)),
+            })
+            .collect()
+    }
+
+    /// Tabla legible de los tiempos, para depurar. Con `analysis`, marca las transiciones
+    /// fluidas y agrega los totales.
+    pub(crate) fn dump(
+        &self,
+        target: &[char],
+        states: &[CharState],
+        analysis: Option<&Analysis>,
+    ) -> String {
         use std::fmt::Write as _;
         let ms = |d: Duration| d.as_secs_f64() * 1000.0;
         let mut out =
-            String::from("pos\tletra\testado\tdown_ms\tup_ms\tretención\tIKI\trollover\n");
+            String::from("pos\tletra\testado\tdown_ms\tup_ms\tretención\tIKI\trollover\tfluida\n");
         let mut prev: Option<Timing> = None;
         for (i, (c, t)) in target.iter().zip(&self.timings).enumerate() {
             let shown = match c {
@@ -164,12 +193,40 @@ impl StrokeLog {
                 Some(_) => "no",
                 None => "-",
             };
+            let fluent = analysis
+                .and_then(|a| a.transitions.iter().find(|tr| tr.at == i))
+                .map_or("-", |tr| match (tr.fluent, tr.held_too_long) {
+                    (true, _) => "sí",
+                    (false, true) => "no (retenida)",
+                    (false, false) => "no",
+                });
             let _ = writeln!(
                 out,
-                "{i}\t{shown}\t{state}\t{:.1}\t{up}\t{hold}\t{iki}\t{rollover}",
+                "{i}\t{shown}\t{state}\t{:.1}\t{up}\t{hold}\t{iki}\t{rollover}\t{fluent}",
                 ms(t.down)
             );
             prev = Some(*t);
+        }
+        if let Some(a) = analysis {
+            let s = a.summary;
+            let pct = |n: u32| {
+                if s.measured == 0 {
+                    0.0
+                } else {
+                    100.0 * f64::from(n) / f64::from(s.measured)
+                }
+            };
+            let _ = writeln!(
+                out,
+                "transiciones medidas: {}, fluidas: {} ({:.0} %), rollover: {} ({:.0} %), \
+                 mejor racha: {}",
+                s.measured,
+                s.fluent,
+                pct(s.fluent),
+                s.rollovers,
+                pct(s.rollovers),
+                s.best_streak
+            );
         }
         out
     }
@@ -242,12 +299,15 @@ mod tests {
         assert_eq!(log.timings()[1], None);
         let states = [CharState::Correct, CharState::Wrong];
         assert!(
-            log.dump(&['h', 't'], &states)
+            log.dump(&['h', 't'], &states, None)
                 .contains("1\tt\tmal\tautorrepetición")
         );
         // Reescribirla con una pulsación real borra la marca.
         log.down(1, stroke(600, 2));
-        assert!(!log.dump(&['h', 't'], &states).contains("autorrepetición"));
+        assert!(
+            !log.dump(&['h', 't'], &states, None)
+                .contains("autorrepetición")
+        );
     }
 
     #[test]
@@ -258,7 +318,7 @@ mod tests {
         assert_eq!(log.timings()[0].map(|t| t.key), Some(None));
         let states = [CharState::Correct, CharState::Untouched];
         assert!(
-            log.dump(&['a', 'b'], &states)
+            log.dump(&['a', 'b'], &states, None)
                 .contains("0\ta\tbien\t0.0\t-")
         );
     }

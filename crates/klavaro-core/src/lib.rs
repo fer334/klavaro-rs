@@ -25,6 +25,7 @@ pub mod ranking;
 pub mod rng;
 pub mod session;
 pub mod tracker;
+pub mod transitions;
 
 /// Los módulos de práctica: los cuatro de Klavaro (la Introducción no genera ejercicios) y la
 /// Progresión, propia de klavaro-rs.

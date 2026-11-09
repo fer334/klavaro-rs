@@ -17,6 +17,7 @@ use klavaro_core::metrics::Stats;
 use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
+use klavaro_core::transitions;
 use klavaro_data::catalog::CatalogEntry;
 
 use crate::assets;
@@ -421,9 +422,16 @@ impl Tutor {
         let Some(log) = &mut self.strokes else {
             return;
         };
-        if std::env::var_os(KEYLOG_ENV).is_some() && log.take_report() {
-            eprintln!("{}", log.dump(self.session.target(), self.session.states()));
+        if std::env::var_os(KEYLOG_ENV).is_none() || !log.take_report() {
+            return;
         }
+        let (target, states) = (self.session.target(), self.session.states());
+        let analysis = self.spec.slot.map(|slot| {
+            let fingers = assets::fingers().ok();
+            let letters = log.letters(target, states, &self.layout, fingers.as_ref());
+            transitions::analyze(&letters, slot.target_wpm())
+        });
+        eprintln!("{}", log.dump(target, states, analysis.as_ref()));
     }
 
     /// Teclas después de terminar: Enter sigue (y en Básico aprobado, avanza de lección);
@@ -955,7 +963,7 @@ mod tests {
         assert!(
             t.strokes()
                 .expect("registro")
-                .dump(t.session.target(), t.session.states())
+                .dump(t.session.target(), t.session.states(), None)
                 .contains("autorrepetición")
         );
     }

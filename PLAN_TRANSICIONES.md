@@ -216,6 +216,20 @@ Falta medir en Linux.
 
 - `cargo test -p klavaro-core` cubre la tabla, la racha y la mediana de retenciones.
 
+### Resultado
+
+Hecha, con un cambio de forma: en lugar de un rastreador que se alimenta tecla por tecla, el
+módulo `klavaro_core::transitions` es una función pura, `analyze(letras, meta_wpm)`, que recibe el
+estado, los tiempos y el dedo de cada letra. Es más simple de probar, y con textos de unos cientos
+de letras se puede llamar en cada tecla para la racha en vivo de la Fase 4.
+
+- Una transición sin tiempos en alguna letra (autorrepetición, método de entrada) no se mide y
+  corta la racha.
+- La mediana de retenciones se usa desde 10 muestras; con menos, el límite es 270 ms.
+- El espacio (pulgares) cuenta como «otra mano»; la misma tecla dos veces, como «mismo dedo».
+- `KLAVARO_KEYLOG=1` ahora agrega la columna «fluida» y los totales, para calibrar con datos
+  reales antes de mostrar nada en la interfaz.
+
 ## Fase 3: resumen y guardado
 
 ### Tareas
