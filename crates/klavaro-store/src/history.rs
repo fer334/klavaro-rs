@@ -11,13 +11,14 @@ use klavaro_core::Module;
 use klavaro_core::metrics::Stats;
 use klavaro_core::progression::Slot;
 use klavaro_core::ranking::{Ranking, RankingEntry};
+use klavaro_core::transitions::TransitionSummary;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::config::module_key;
 use crate::{Result, io_error};
 
 /// Versión del esquema (`PRAGMA user_version`).
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sessions (
@@ -65,7 +66,12 @@ CREATE TABLE IF NOT EXISTS progression_attempts (
     fluidity   REAL    NOT NULL,
     score      REAL    NOT NULL,
     stars      INTEGER NOT NULL,
-    elapsed_ms INTEGER NOT NULL
+    elapsed_ms INTEGER NOT NULL,
+    -- Versión 4: transiciones fluidas. `NULL` en los intentos anteriores.
+    transitions_measured INTEGER,
+    transitions_fluent   INTEGER,
+    rollovers            INTEGER,
+    best_streak          INTEGER
 );
 CREATE INDEX IF NOT EXISTS progression_by_lesson
     ON progression_attempts (language, section, lesson);
@@ -165,7 +171,30 @@ pub struct LessonAttempt {
     pub stars: u8,
     /// Duración.
     pub elapsed: Duration,
+    /// Transiciones fluidas, si se midieron.
+    pub transitions: Option<TransitionSummary>,
 }
+
+/// Transiciones de un intento anterior, para comparar.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PreviousTransitions {
+    /// Si es de la misma lección (si no, es el último intento de la Progresión).
+    pub same_lesson: bool,
+    /// Transiciones medidas.
+    pub measured: u32,
+    /// Transiciones fluidas.
+    pub fluent: u32,
+    /// Precisión de ese intento (%).
+    pub accuracy: f64,
+}
+
+/// Columnas que la versión 4 agrega a `progression_attempts` en una base anterior.
+const V4_COLUMNS: [&str; 4] = [
+    "transitions_measured",
+    "transitions_fluent",
+    "rollovers",
+    "best_streak",
+];
 
 /// Mejores valores de una lección entre todos sus intentos.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -251,6 +280,7 @@ impl History {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch(SCHEMA)?;
+        add_missing_columns(&conn)?;
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
         Ok(Self { conn })
     }
@@ -293,8 +323,9 @@ impl History {
         tx.execute(
             "INSERT INTO progression_attempts (at, language, section, lesson, target_wpm, text_id,
                                                keyboard, wpm, accuracy, fluidity, score, stars,
-                                               elapsed_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                                               elapsed_ms, transitions_measured,
+                                               transitions_fluent, rollovers, best_streak)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 attempt.at,
                 attempt.language,
@@ -309,6 +340,10 @@ impl History {
                 attempt.score,
                 attempt.stars,
                 i64::try_from(attempt.elapsed.as_millis()).unwrap_or(i64::MAX),
+                attempt.transitions.map(|t| t.measured),
+                attempt.transitions.map(|t| t.fluent),
+                attempt.transitions.map(|t| t.rollovers),
+                attempt.transitions.map(|t| t.best_streak),
             ],
         )?;
         insert_session(&tx, session)?;
@@ -392,6 +427,48 @@ impl History {
             }
         }
         Ok(out)
+    }
+
+    /// Transiciones del último intento con transiciones medidas de una lección o, si la lección
+    /// no tiene ninguno, del último intento de la Progresión en ese idioma.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la lectura.
+    pub fn previous_transitions(
+        &self,
+        language: &str,
+        slot: Slot,
+    ) -> Result<Option<PreviousTransitions>> {
+        let read = |row: &rusqlite::Row<'_>| -> rusqlite::Result<(u16, u16, u32, u32, f64)> {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        };
+        let row = self
+            .conn
+            .query_row(
+                "SELECT section, lesson, transitions_measured, transitions_fluent, accuracy
+                 FROM progression_attempts
+                 WHERE language = ?1 AND transitions_measured > 0
+                 ORDER BY (section = ?2 AND lesson = ?3) DESC, at DESC, id DESC
+                 LIMIT 1",
+                params![language, slot.section(), slot.lesson()],
+                read,
+            )
+            .optional()?;
+        Ok(row.map(
+            |(section, lesson, measured, fluent, accuracy)| PreviousTransitions {
+                same_lesson: section == slot.section() && lesson == slot.lesson(),
+                measured,
+                fluent,
+                accuracy,
+            },
+        ))
     }
 
     /// Las últimas `limit` sesiones de un módulo, de la más vieja a la más nueva.
@@ -587,6 +664,22 @@ impl History {
     }
 }
 
+/// Agrega las columnas de la versión 4 que falten. Sólo agrega: no toca los datos.
+fn add_missing_columns(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare("SELECT name FROM pragma_table_info('progression_attempts')")?;
+    let existing = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    for column in V4_COLUMNS {
+        if !existing.iter().any(|c| c == column) {
+            conn.execute_batch(&format!(
+                "ALTER TABLE progression_attempts ADD COLUMN {column} INTEGER"
+            ))?;
+        }
+    }
+    Ok(())
+}
+
 /// Clave de `meta` con la sección superada por examen en un idioma.
 fn exam_key(language: &str) -> String {
     format!("progression_exam_{language}")
@@ -657,6 +750,7 @@ mod tests {
             score: wpm / 10.0,
             stars,
             elapsed: Duration::from_secs(60),
+            transitions: None,
         }
     }
 
@@ -822,6 +916,86 @@ mod tests {
         assert_eq!(h.count(Module::Fluidity).expect("contar"), 1);
         save(&mut h, &attempt("es", slot(20, 1), 5, 22.0));
         assert_eq!(h.lesson_bests("es").expect("leer").len(), 1);
+    }
+
+    fn summary(measured: u32, fluent: u32) -> TransitionSummary {
+        TransitionSummary {
+            measured,
+            fluent,
+            rollovers: fluent / 2,
+            best_streak: 3,
+            current_streak: 0,
+        }
+    }
+
+    #[test]
+    fn compares_with_the_last_attempt_of_the_same_lesson() {
+        let mut h = History::in_memory().expect("base");
+        assert_eq!(
+            h.previous_transitions("C", slot(20, 2)).expect("leer"),
+            None
+        );
+        // Sin transiciones (intentos de antes de la versión 4): no sirven para comparar.
+        save(&mut h, &attempt("C", slot(20, 2), 3, 18.0));
+        assert_eq!(
+            h.previous_transitions("C", slot(20, 2)).expect("leer"),
+            None
+        );
+        let mut a = attempt("C", slot(20, 2), 3, 18.0);
+        a.transitions = Some(summary(100, 30));
+        save(&mut h, &a);
+        let mut b = attempt("C", slot(20, 1), 3, 18.0);
+        b.at = 20;
+        b.transitions = Some(summary(100, 50));
+        save(&mut h, &b);
+        let prev = h.previous_transitions("C", slot(20, 2)).expect("leer");
+        assert_eq!(
+            prev,
+            Some(PreviousTransitions {
+                same_lesson: true,
+                measured: 100,
+                fluent: 30,
+                accuracy: 97.0,
+            })
+        );
+        // Una lección sin intentos se compara con el último de la Progresión.
+        let other = h.previous_transitions("C", slot(25, 1)).expect("leer");
+        assert_eq!(other.map(|p| (p.same_lesson, p.fluent)), Some((false, 50)));
+        assert_eq!(
+            h.previous_transitions("es", slot(20, 2)).expect("leer"),
+            None
+        );
+    }
+
+    #[test]
+    fn upgrades_a_version_3_database_without_losing_attempts() {
+        let conn = Connection::open_in_memory().expect("base");
+        conn.execute_batch(
+            "CREATE TABLE progression_attempts (
+                 id INTEGER PRIMARY KEY, at INTEGER NOT NULL, language TEXT NOT NULL,
+                 section INTEGER NOT NULL, lesson INTEGER NOT NULL, target_wpm REAL NOT NULL,
+                 text_id TEXT NOT NULL, keyboard TEXT NOT NULL, wpm REAL NOT NULL,
+                 accuracy REAL NOT NULL, fluidity REAL NOT NULL, score REAL NOT NULL,
+                 stars INTEGER NOT NULL, elapsed_ms INTEGER NOT NULL);
+             INSERT INTO progression_attempts (at, language, section, lesson, target_wpm,
+                 text_id, keyboard, wpm, accuracy, fluidity, score, stars, elapsed_ms)
+                 VALUES (5, 'C', 20, 1, 15.2, 't', 'qwerty_us', 16.0, 97.0, 70.0, 1.6, 4,
+                         60000);
+             PRAGMA user_version = 3;",
+        )
+        .expect("esquema 3");
+        let mut h = History::init(conn).expect("actualizar");
+        let bests = h.lesson_bests("C").expect("leer");
+        assert_eq!(bests.len(), 1);
+        assert_eq!(bests[0].stars, 4);
+        let mut a = attempt("C", slot(20, 1), 5, 20.0);
+        a.transitions = Some(summary(80, 20));
+        save(&mut h, &a);
+        let prev = h.previous_transitions("C", slot(20, 1)).expect("leer");
+        assert_eq!(prev.map(|p| p.fluent), Some(20));
+        // Abrir de nuevo no falla ni duplica columnas.
+        let h = History::init(h.conn).expect("reabrir");
+        assert_eq!(h.lesson_bests("C").expect("leer")[0].stars, 5);
     }
 
     #[test]

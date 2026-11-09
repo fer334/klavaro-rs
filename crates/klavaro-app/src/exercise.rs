@@ -12,7 +12,9 @@ use klavaro_core::progression::{LessonResult, Milestone, NextStep, Slot};
 use klavaro_core::ranking::{MIN_CHARS, Rejection};
 use klavaro_core::rng::SplitMix64;
 use klavaro_core::tracker::KeyTracker;
+use klavaro_core::transitions::TransitionSummary;
 use klavaro_i18n::Translator;
+use klavaro_store::PreviousTransitions;
 
 use crate::assets;
 use crate::profile::{Notice, Recorded};
@@ -221,6 +223,98 @@ pub(crate) fn goal_text(tr: &Translator, result: &LessonResult, accuracy: f64) -
     })
 }
 
+/// Cuánto puede bajar la precisión (en puntos) sin dejar de felicitar por más transiciones.
+pub(crate) const ACCURACY_SLACK: f64 = 1.0;
+
+/// Cómo se compara un intento con el anterior.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Comparison {
+    /// Más transiciones fluidas sin perder precisión: se felicita.
+    Better(String),
+    /// Más transiciones fluidas, pero con menos precisión: no se felicita.
+    LessAccurate(String),
+}
+
+/// Textos de las transiciones fluidas al terminar una lección.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransitionLines {
+    /// Cuántas fueron fluidas y la mejor racha.
+    pub(crate) main: String,
+    /// La comparación con el intento anterior, si mejoró.
+    pub(crate) comparison: Option<Comparison>,
+    /// El rollover, como dato.
+    pub(crate) rollover: String,
+}
+
+/// Porcentaje entero de `n` sobre `total`.
+fn percent_of(n: u32, total: u32) -> f64 {
+    if total == 0 {
+        0.0
+    } else {
+        100.0 * f64::from(n) / f64::from(total)
+    }
+}
+
+/// Textos de las transiciones. `None` si no se midió ninguna (por ejemplo, con el método de
+/// entrada). Si no mejoró respecto del intento anterior, no se dice nada: no es un castigo.
+#[cfg_attr(not(feature = "gui"), allow(dead_code))]
+pub(crate) fn transition_lines(
+    tr: &Translator,
+    summary: TransitionSummary,
+    accuracy: f64,
+    previous: Option<PreviousTransitions>,
+) -> Option<TransitionLines> {
+    if summary.measured == 0 {
+        return None;
+    }
+    let rate = percent_of(summary.fluent, summary.measured);
+    let main = tr.tr_args(
+        "sections-transitions",
+        &[
+            ("fluent", &summary.fluent.to_string()),
+            ("measured", &summary.measured.to_string()),
+            ("percent", &format!("{rate:.0}")),
+            ("streak", &summary.best_streak.to_string()),
+        ],
+    );
+    let rollover = tr.tr_args(
+        "sections-transitions-rollover",
+        &[(
+            "percent",
+            &format!("{:.0}", percent_of(summary.rollovers, summary.measured)),
+        )],
+    );
+    let comparison = previous.and_then(|p| {
+        // En la misma lección se comparan cantidades; con otra, porcentajes (el largo cambia).
+        let gain = if p.same_lesson {
+            f64::from(summary.fluent) - f64::from(p.fluent)
+        } else {
+            (rate - percent_of(p.fluent, p.measured)).round()
+        };
+        if gain < 1.0 {
+            return None;
+        }
+        if accuracy + ACCURACY_SLACK < p.accuracy {
+            return Some(Comparison::LessAccurate(
+                tr.tr("sections-transitions-less-accurate"),
+            ));
+        }
+        let (key, arg) = if p.same_lesson {
+            ("sections-transitions-more", "count")
+        } else {
+            ("sections-transitions-more-percent", "points")
+        };
+        Some(Comparison::Better(
+            tr.tr_args(key, &[(arg, &format!("{gain:.0}"))]),
+        ))
+    });
+    Some(TransitionLines {
+        main,
+        comparison,
+        rollover,
+    })
+}
+
 /// Mensaje al abrir la aplicación.
 #[cfg_attr(not(feature = "gui"), allow(dead_code))]
 pub(crate) fn notice_text(tr: &Translator, n: &Notice) -> String {
@@ -276,6 +370,91 @@ mod tests {
         assert_eq!(first, generate(&spec, &layout, 99, None).expect("texto"));
         let without_lesson = ExerciseSpec { slot: None, ..spec };
         assert!(generate(&without_lesson, &layout, 1, None).is_err());
+    }
+
+    fn summary(measured: u32, fluent: u32) -> TransitionSummary {
+        TransitionSummary {
+            measured,
+            fluent,
+            rollovers: 25,
+            best_streak: 6,
+            current_streak: 0,
+        }
+    }
+
+    #[test]
+    fn transitions_praise_only_a_real_improvement() {
+        let tr = Translator::new("es");
+        let prev = |same_lesson, fluent, accuracy| {
+            Some(PreviousTransitions {
+                same_lesson,
+                measured: 100,
+                fluent,
+                accuracy,
+            })
+        };
+        let lines = |s, accuracy, p| transition_lines(&tr, s, accuracy, p).expect("medidas");
+
+        // Sin nada medido no se muestra nada.
+        assert_eq!(transition_lines(&tr, summary(0, 0), 99.0, None), None);
+
+        let first = lines(summary(118, 42), 97.0, None);
+        assert!(first.main.contains("42") && first.main.contains("118"));
+        assert!(first.main.contains("36") && first.main.contains('6'));
+        assert!(first.rollover.contains("21"));
+        assert_eq!(first.comparison, None);
+
+        // Misma lección: 18 más, con la misma precisión.
+        let better = lines(summary(100, 38), 96.5, prev(true, 20, 97.0));
+        assert!(matches!(&better.comparison, Some(Comparison::Better(t)) if t.contains("18")));
+
+        // Más transiciones pero con más de un punto menos de precisión: no se felicita.
+        let sloppy = lines(summary(100, 38), 94.0, prev(true, 20, 97.0));
+        assert!(matches!(
+            sloppy.comparison,
+            Some(Comparison::LessAccurate(_))
+        ));
+
+        // Igual o peor: no se dice nada.
+        assert_eq!(
+            lines(summary(100, 20), 99.0, prev(true, 20, 97.0)).comparison,
+            None
+        );
+        assert_eq!(
+            lines(summary(100, 10), 99.0, prev(true, 20, 97.0)).comparison,
+            None
+        );
+
+        // Otra lección: se comparan porcentajes (30 % contra 20 %).
+        let other = lines(summary(200, 60), 97.0, prev(false, 20, 97.0));
+        assert!(matches!(&other.comparison, Some(Comparison::Better(t)) if t.contains("10")));
+    }
+
+    #[test]
+    fn transition_texts_are_translated() {
+        for code in ["C", "es"] {
+            let tr = Translator::new(code);
+            let previous = |same_lesson, accuracy| {
+                Some(PreviousTransitions {
+                    same_lesson,
+                    measured: 100,
+                    fluent: 20,
+                    accuracy,
+                })
+            };
+            for (prev, accuracy) in [(previous(true, 97.0), 97.0), (previous(false, 99.0), 90.0)] {
+                let lines = transition_lines(&tr, summary(100, 40), accuracy, prev).expect("hay");
+                let comparison = match lines.comparison.expect("mejoró") {
+                    Comparison::Better(t) | Comparison::LessAccurate(t) => t,
+                };
+                for t in [lines.main, comparison, lines.rollover] {
+                    assert!(
+                        !t.starts_with("sections-") && !t.contains("{$"),
+                        "{code}: {t}"
+                    );
+                }
+            }
+        }
     }
 
     /// Ningún texto queda sin traducir (mostraría la clave) en inglés ni en español.

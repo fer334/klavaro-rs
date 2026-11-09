@@ -15,7 +15,7 @@ use klavaro_core::progression::{
 use klavaro_data::catalog::CatalogEntry;
 
 use super::{App, Message, ResetStep, action, bar_with_back, card, page_title, stat, top_bar};
-use crate::exercise::goal_text;
+use crate::exercise::{Comparison, goal_text, transition_lines};
 use crate::sections::{
     LESSON_COLUMNS, SECTION_COLUMNS, SectionView, SectionsView, clock, source_name, star_line,
 };
@@ -374,6 +374,21 @@ impl App {
         }
         if let Some(goal) = goal_text(tr, &result, outcome.stats.accuracy) {
             summary = summary.push(text(goal).size(15).color(colors.warning));
+        }
+        if let Some(lines) = outcome.transitions.and_then(|s| {
+            transition_lines(tr, s, outcome.stats.accuracy, outcome.previous_transitions)
+        }) {
+            summary = summary.push(text(lines.main).size(15));
+            match lines.comparison {
+                Some(Comparison::Better(t)) => {
+                    summary = summary.push(text(t).size(15).color(colors.success));
+                }
+                Some(Comparison::LessAccurate(t)) => {
+                    summary = summary.push(text(t).size(15).color(colors.warning));
+                }
+                None => {}
+            }
+            summary = summary.push(text(lines.rollover).size(13).style(style::muted));
         }
         summary = summary.push(text(tr.tr(hint)).size(13).style(style::muted));
         let weak = tutor.weak_keys();

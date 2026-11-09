@@ -523,6 +523,12 @@ impl App {
         let Some(outcome) = t.outcome() else {
             return;
         };
+        // Hay que leerlo antes de guardar: después, el intento anterior sería éste.
+        let previous = t
+            .spec()
+            .slot
+            .filter(|_| outcome.transitions.is_some_and(|s| s.measured > 0))
+            .and_then(|slot| self.profile.previous_transitions(&t.spec().language, slot));
         let model = if t.spec().module == klavaro_core::Module::Fluidity {
             assets::paragraphs(&t.spec().language)
                 .map(|p| p.join(" "))
@@ -551,7 +557,11 @@ impl App {
         if let Err(e) = self.profile.save_tracker(&self.keyboard, t.tracker()) {
             self.error = Some(e.to_string());
         }
-        if t.spec().module == Module::Progression {
+        let progression = t.spec().module == Module::Progression;
+        if let Screen::Tutor(t) = &mut self.screen {
+            t.set_previous_transitions(previous);
+        }
+        if progression {
             self.load_lessons();
         }
     }

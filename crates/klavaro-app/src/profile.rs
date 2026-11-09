@@ -8,12 +8,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use klavaro_core::Module;
-use klavaro_core::progression::{MAX_STARS, Milestone, NextStep};
+use klavaro_core::progression::{MAX_STARS, Milestone, NextStep, Slot};
 use klavaro_core::ranking::{MIN_CHARS, Ranking, RankingEntry, Rejection, text_resembles_language};
 use klavaro_core::tracker::KeyTracker;
 use klavaro_store::history::ScoreRecord;
 use klavaro_store::{
-    Config, History, LessonAttempt, LessonBest, Paths, SessionRecord, StoreError, import, paths,
+    Config, History, LessonAttempt, LessonBest, Paths, PreviousTransitions, SessionRecord,
+    StoreError, import, paths,
 };
 
 use crate::exercise::ExerciseSpec;
@@ -285,6 +286,7 @@ impl Profile {
             score: stats.score(),
             stars: result.stars,
             elapsed: stats.elapsed,
+            transitions: outcome.transitions,
         };
         let mut session = SessionRecord::from_stats(spec.module, at, stats);
         session.wpm = result.speed;
@@ -307,6 +309,21 @@ impl Profile {
             milestone: ladder.milestone(&sections::ladder(&previous, exam_before), slot),
             exam: spec.exam,
         })
+    }
+
+    /// Transiciones del intento anterior con que comparar una lección: el último de la misma
+    /// lección o, si no hay, el último de la Progresión. Hay que pedirlo antes de guardar el
+    /// intento nuevo. Si no se puede leer, no hay comparación.
+    pub(crate) fn previous_transitions(
+        &self,
+        language: &str,
+        slot: Slot,
+    ) -> Option<PreviousTransitions> {
+        self.history
+            .as_ref()?
+            .previous_transitions(language, slot)
+            .ok()
+            .flatten()
     }
 
     /// Mejores resultados de cada lección de la Progresión en un idioma.
@@ -411,6 +428,42 @@ mod tests {
                 .exam_section(sections::LESSONS_LANGUAGE)
                 .expect("leer"),
         )
+    }
+
+    #[test]
+    fn transitions_are_saved_and_compared_with_the_previous_attempt() {
+        let mut profile = Profile::in_memory(Config::default()).expect("perfil");
+        let slot = Slot::new(20, 1).expect("lección");
+        let language = sections::LESSONS_LANGUAGE;
+        assert_eq!(profile.previous_transitions(language, slot), None);
+        let spec = ExerciseSpec {
+            slot: Some(slot),
+            exam: false,
+            language: language.to_owned(),
+            ..spec(Module::Progression)
+        };
+        let mut outcome = outcome(100);
+        outcome.lesson = Some(klavaro_core::progression::LessonResult::new(
+            slot,
+            98,
+            &outcome.stats,
+        ));
+        outcome.transitions = Some(klavaro_core::transitions::TransitionSummary {
+            measured: 90,
+            fluent: 40,
+            rollovers: 20,
+            best_streak: 7,
+            current_streak: 2,
+        });
+        profile
+            .record(&spec, "dvorak", &outcome, "", "")
+            .expect("guardar");
+        let prev = profile
+            .previous_transitions(language, slot)
+            .expect("anterior");
+        assert!(prev.same_lesson);
+        assert_eq!((prev.measured, prev.fluent), (90, 40));
+        assert!((prev.accuracy - outcome.stats.accuracy).abs() < 1e-9);
     }
 
     #[test]
@@ -642,6 +695,8 @@ mod tests {
             advance: false,
             lesson: None,
             source: None,
+            transitions: None,
+            previous_transitions: None,
         }
     }
 

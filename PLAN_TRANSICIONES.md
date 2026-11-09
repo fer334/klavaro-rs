@@ -244,6 +244,22 @@ de letras se puede llamar en cada tecla para la racha en vivo de la Fase 4.
 - Bajar la precisión nunca produce un mensaje de felicitación.
 - Una base de datos con esquema 3 se abre y migra sin perder intentos.
 
+### Resultado
+
+Hecha.
+
+- El resultado de una lección de Progresión muestra «Transiciones fluidas: N de M (P %) · mejor
+  racha: R», la comparación si mejoró y el rollover como dato, con su explicación.
+- La comparación es contra el último intento **con transiciones medidas** de la misma lección
+  (cantidades) o, si no hay, contra el último de la Progresión (puntos porcentuales). Se lee
+  antes de guardar el intento nuevo.
+- Si la precisión bajó más de 1 punto, dice «pero bajó la precisión» en lugar de felicitar. Si
+  no mejoró, no dice nada.
+- La migración agrega las columnas con `ALTER TABLE` sólo si faltan; abrir la base otra vez no
+  hace nada. Los intentos viejos quedan en `NULL` y no cuentan para comparar.
+- Límite conocido: en la última transición la tecla anterior suele soltarse después de terminar
+  la lección, así que su rollover no se cuenta (sí cuenta si fue fluida).
+
 ## Fase 4: destellos y racha durante el ejercicio
 
 ### Tareas

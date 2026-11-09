@@ -12,13 +12,15 @@ use std::time::Duration;
 use klavaro_core::Module;
 use klavaro_core::generators::basic::FIXED_LESSONS;
 use klavaro_core::goals::{Comment, CommentContext, GoalCheck, Goals};
+use klavaro_core::keyboard::FingerMap;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::metrics::Stats;
 use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
-use klavaro_core::transitions;
+use klavaro_core::transitions::{self, TransitionSummary};
 use klavaro_data::catalog::CatalogEntry;
+use klavaro_store::PreviousTransitions;
 
 use crate::assets;
 use crate::exercise::{self, ExerciseSpec};
@@ -137,6 +139,11 @@ pub(crate) struct Outcome {
     pub(crate) lesson: Option<LessonResult>,
     /// En la Progresión: de dónde salió el texto.
     pub(crate) source: Option<CatalogEntry>,
+    /// En la Progresión: transiciones fluidas. No cambia el puntaje ni las estrellas.
+    pub(crate) transitions: Option<TransitionSummary>,
+    /// En la Progresión: transiciones del intento con que se compara (lo pone la interfaz al
+    /// guardar el intento).
+    pub(crate) previous_transitions: Option<PreviousTransitions>,
 }
 
 /// Efecto de una acción que la interfaz tiene que aplicar.
@@ -177,6 +184,8 @@ pub(crate) struct Tutor {
     typo_open: bool,
     /// En la Progresión: cuándo se apretó y se soltó la tecla de cada letra. Sólo observa.
     strokes: Option<StrokeLog>,
+    /// Dedos de cada tecla, para clasificar las transiciones (si se pudieron leer).
+    fingers: Option<FingerMap>,
 }
 
 /// Variable de entorno que, si está definida, imprime los tiempos de cada letra al terminar
@@ -205,7 +214,12 @@ impl Tutor {
             .map(|slot| assets::lesson(&spec.language, slot))
             .transpose()?;
         let strokes = stroke_log(spec.module, &session);
+        // Sin el mapa de dedos las transiciones se miden igual, con el umbral general.
+        let fingers = (spec.module == Module::Progression)
+            .then(|| assets::fingers().ok())
+            .flatten();
         Ok(Self {
+            fingers,
             spec,
             layout,
             goals,
@@ -394,6 +408,7 @@ impl Tutor {
             log.down(before, stroke);
         }
         if effect.finished {
+            self.attach_transitions();
             self.report_strokes();
         }
         Ok(effect)
@@ -406,6 +421,35 @@ impl Tutor {
         }
         if self.outcome.is_some() {
             self.report_strokes();
+        }
+    }
+
+    /// Analiza las transiciones del ejercicio recién terminado.
+    fn analyze_transitions(&self) -> Option<transitions::Analysis> {
+        let log = self.strokes.as_ref()?;
+        let slot = self.spec.slot?;
+        let letters = log.letters(
+            self.session.target(),
+            self.session.states(),
+            &self.layout,
+            self.fingers.as_ref(),
+        );
+        Some(transitions::analyze(&letters, slot.target_wpm()))
+    }
+
+    /// Agrega las transiciones al resultado. Se hace después de anotar la última letra, que
+    /// la sesión evalúa antes de que se registren sus tiempos.
+    fn attach_transitions(&mut self) {
+        let summary = self.analyze_transitions().map(|a| a.summary);
+        if let Some(outcome) = &mut self.outcome {
+            outcome.transitions = summary;
+        }
+    }
+
+    /// Guarda con qué intento anterior se comparan las transiciones del resultado.
+    pub(crate) fn set_previous_transitions(&mut self, previous: Option<PreviousTransitions>) {
+        if let Some(outcome) = &mut self.outcome {
+            outcome.previous_transitions = previous;
         }
     }
 
@@ -425,13 +469,11 @@ impl Tutor {
         if std::env::var_os(KEYLOG_ENV).is_none() || !log.take_report() {
             return;
         }
-        let (target, states) = (self.session.target(), self.session.states());
-        let analysis = self.spec.slot.map(|slot| {
-            let fingers = assets::fingers().ok();
-            let letters = log.letters(target, states, &self.layout, fingers.as_ref());
-            transitions::analyze(&letters, slot.target_wpm())
-        });
-        eprintln!("{}", log.dump(target, states, analysis.as_ref()));
+        let analysis = self.analyze_transitions();
+        if let Some(log) = &self.strokes {
+            let (target, states) = (self.session.target(), self.session.states());
+            eprintln!("{}", log.dump(target, states, analysis.as_ref()));
+        }
     }
 
     /// Teclas después de terminar: Enter sigue (y en Básico aprobado, avanza de lección);
@@ -511,6 +553,8 @@ impl Tutor {
             advance,
             lesson,
             source: self.source.clone(),
+            transitions: None,
+            previous_transitions: None,
         });
     }
 
@@ -948,8 +992,46 @@ mod tests {
         type_lesson(&mut plain, 100);
         let mut keyed = lesson_tutor(20, 30);
         type_lesson_with_keys(&mut keyed, 100);
-        assert_eq!(plain.outcome(), keyed.outcome());
+        // Lo único que agrega el registro son las transiciones: lo demás es idéntico.
+        let without = |t: &Tutor| {
+            t.outcome().cloned().map(|mut o| {
+                o.transitions = None;
+                o
+            })
+        };
+        assert_eq!(without(&plain), without(&keyed));
         assert!(plain.outcome().is_some());
+    }
+
+    #[test]
+    fn a_finished_lesson_reports_its_transitions() {
+        // A 20 PPM el umbral general es 480 ms: escribir cada 100 ms es fluido.
+        let mut t = lesson_tutor(20, 30);
+        type_lesson_with_keys(&mut t, 100);
+        let letters = u32::try_from(t.text().chars().count()).expect("largo");
+        let s = t
+            .outcome()
+            .and_then(|o| o.transitions)
+            .expect("transiciones");
+        // Todas medidas, incluida la última letra, que la sesión evalúa antes de anotarla.
+        assert_eq!(s.measured, letters - 1);
+        assert_eq!(s.fluent, s.measured);
+        assert_eq!(s.best_streak, s.measured);
+        // Cada tecla se suelta 120 ms después de bajar y la siguiente baja a los 100 ms. En la
+        // última transición la tecla anterior todavía no se soltó al terminar: no se sabe.
+        assert_eq!(s.rollovers, s.measured - 1);
+
+        // Sin los datos de cada tecla (`handle` a secas) no hay transiciones.
+        let mut plain = lesson_tutor(20, 30);
+        type_lesson(&mut plain, 100);
+        assert_eq!(plain.outcome().map(|o| o.transitions), Some(None));
+    }
+
+    #[test]
+    fn other_modules_report_no_transitions() {
+        let mut t = tutor(Module::Velocity);
+        type_target(&mut t, None);
+        assert_eq!(t.outcome().map(|o| o.transitions), Some(None));
     }
 
     #[test]
