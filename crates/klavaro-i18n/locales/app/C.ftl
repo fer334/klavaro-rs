@@ -27,6 +27,7 @@ progress-all-lessons = All lessons
 progress-empty = No sessions to chart yet.
 progress-sessions = Last { $count } sessions · { $first } – { $last }
 progress-goal = Goal: { $value }
+progress-back-exercise = Back to the exercise
 ranking-place = #
 tutor-special = Weak keys
 tutor-special-on = Weak keys ✓

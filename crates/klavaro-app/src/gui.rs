@@ -116,6 +116,8 @@ struct ProgressView {
     /// Sección de la Progresión (0 = todas).
     section: u16,
     chart: Chart,
+    /// Ejercicio desde el que se abrió: volver lo retoma en vez de ir al menú.
+    origin: Option<ExerciseSpec>,
 }
 
 /// Pasos para reiniciar la Progresión desde Preferencias.
@@ -453,6 +455,14 @@ impl App {
 
     /// Vuelve a la pantalla anterior.
     fn back(&mut self) {
+        if let Screen::Progress(v) = &mut self.screen
+            && let Some(spec) = v.origin.take()
+        {
+            if let Err(e) = self.start_spec(spec) {
+                self.error = Some(e.to_string());
+            }
+            return;
+        }
         let section = match &self.screen {
             Screen::Tutor(t) => t.spec().slot.map(Slot::section),
             Screen::Progress(v) if v.module == Module::Progression && v.section != 0 => {
@@ -773,12 +783,14 @@ impl App {
                 }
             }
             Message::LessonProgress(slot) => {
+                let origin = self.progress_origin();
                 self.leave_tutor();
                 self.show_progress(
                     Module::Progression,
                     Metric::Speed,
                     slot.section(),
                     slot.lesson(),
+                    origin,
                 );
             }
             Message::PracticeWeakKeys => {
@@ -833,17 +845,18 @@ impl App {
                     Screen::Progress(v) => v.metric,
                     _ => Metric::Accuracy,
                 };
+                let origin = self.progress_origin();
                 self.leave_tutor();
                 let lesson = if module == Module::Progression {
                     0
                 } else {
                     self.lesson
                 };
-                self.show_progress(module, metric, 0, lesson);
+                self.show_progress(module, metric, 0, lesson, origin);
             }
             Message::ProgressMetric(metric) => {
                 if let Screen::Progress(v) = &self.screen {
-                    self.show_progress(v.module, metric, v.section, v.lesson);
+                    self.show_progress(v.module, metric, v.section, v.lesson, v.origin.clone());
                 }
             }
             Message::ProgressLesson(delta) => {
@@ -855,14 +868,14 @@ impl App {
                     };
                     let lesson = (i32::from(v.lesson) + delta).clamp(0, i32::from(top));
                     let lesson = u16::try_from(lesson).unwrap_or(0);
-                    self.show_progress(v.module, v.metric, v.section, lesson);
+                    self.show_progress(v.module, v.metric, v.section, lesson, v.origin.clone());
                 }
             }
             Message::ProgressSection(delta) => {
                 if let Screen::Progress(v) = &self.screen {
                     let section = crate::sections::stepped_section(v.section, delta);
                     let lesson = if section == 0 { 0 } else { v.lesson };
-                    self.show_progress(v.module, v.metric, section, lesson);
+                    self.show_progress(v.module, v.metric, section, lesson, v.origin.clone());
                 }
             }
             _ => {}
@@ -1051,8 +1064,25 @@ impl App {
         }
     }
 
+    /// El ejercicio al que vuelve la pantalla de progreso: el que está abierto o, si ya se
+    /// está en el progreso, el que lo abrió.
+    fn progress_origin(&self) -> Option<ExerciseSpec> {
+        match &self.screen {
+            Screen::Tutor(t) => Some(t.spec().clone()),
+            Screen::Progress(v) => v.origin.clone(),
+            _ => None,
+        }
+    }
+
     /// Abre (o actualiza) el gráfico de progreso.
-    fn show_progress(&mut self, module: Module, metric: Metric, section: u16, lesson: u16) {
+    fn show_progress(
+        &mut self,
+        module: Module,
+        metric: Metric,
+        section: u16,
+        lesson: u16,
+        origin: Option<ExerciseSpec>,
+    ) {
         // Cada módulo tiene sus gráficos: si no existe el pedido, se muestra el primero.
         // Fluidez y puntaje sólo existen en el módulo de Fluidez.
         let metric = if Metric::for_module(module).contains(&metric) {
@@ -1092,6 +1122,7 @@ impl App {
             lesson,
             section,
             chart,
+            origin,
         });
     }
 
@@ -1152,7 +1183,7 @@ impl App {
                 match input {
                     Input::Char('p' | 'P') => {
                         let module = self.profile.config.last_module.unwrap_or(Module::Basic);
-                        self.show_progress(module, Metric::Accuracy, 0, self.lesson);
+                        self.show_progress(module, Metric::Accuracy, 0, self.lesson, None);
                         return Ok(());
                     }
                     Input::Char('n' | 'N') => {
@@ -1816,9 +1847,17 @@ impl App {
                 .spacing(8)
                 .into()
         };
+        // El botón dice adónde lleva: al ejercicio de origen, a la sección o al menú.
+        let back = if v.origin.is_some() {
+            "progress-back-exercise"
+        } else if v.module == Module::Progression && v.section != 0 {
+            "sections-back"
+        } else {
+            "menu-back"
+        };
         column![
-            top_bar(
-                tr,
+            bar_with_back(
+                &tr.tr(back),
                 page_title(tr.tr("menu-progress")),
                 [action(tr.tr("menu-top10"), Message::Top10)],
             ),

@@ -55,6 +55,7 @@ progress-all-lessons = Todas las lecciones
 progress-empty = Todavía no hay sesiones para graficar.
 progress-sessions = Últimas { $count } sesiones · { $first } – { $last }
 progress-goal = Meta: { $value }
+progress-back-exercise = Volver al ejercicio
 ranking-place = #
 tutor-special = Teclas débiles
 tutor-special-on = Teclas débiles ✓
