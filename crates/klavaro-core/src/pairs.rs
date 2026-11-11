@@ -23,6 +23,20 @@ pub const MAX_SAMPLES: usize = 30;
 pub const MAX_IKI: Duration = Duration::from_secs(1);
 /// Muestras necesarias para confiar en el tiempo de un par.
 pub const MIN_SAMPLES: usize = 6;
+/// Pares medidos necesarios para saber cuál es el tiempo habitual del estudiante.
+pub const MIN_PAIRS: usize = 8;
+/// Un par es lento si su tiempo ajustado llega a este múltiplo del tiempo habitual.
+pub const SLOW_FACTOR: f64 = 1.25;
+/// Un par se falla seguido si la segunda letra sale mal esta fracción de las veces.
+pub const ERROR_RATE: f64 = 0.15;
+/// Errores necesarios para decir que un par se falla seguido: uno solo es un tropiezo.
+pub const MIN_ERRORS: u32 = 2;
+/// Veces escritas a partir de las cuales la cuenta de errores se reduce a la mitad, para que
+/// los errores viejos pesen cada vez menos.
+pub const ERROR_WINDOW: u32 = 60;
+
+/// Cuántas veces aparece cada par en un texto de referencia (ver [`frequencies`]).
+pub type PairFrequencies = BTreeMap<(char, char), u32>;
 
 /// Lo que se sabe de un par de letras.
 #[derive(Debug, Clone, PartialEq)]
@@ -98,6 +112,17 @@ impl PairEntry {
         }
     }
 
+    /// Suma una vez escrito (y un error, si `wrong`). Pasada [`ERROR_WINDOW`], las dos cuentas
+    /// se reducen a la mitad: la proporción queda igual y lo nuevo pesa más.
+    fn count(&mut self, wrong: bool) {
+        self.typed = self.typed.saturating_add(1);
+        self.wrong = self.wrong.saturating_add(u32::from(wrong));
+        if self.typed > ERROR_WINDOW {
+            self.typed /= 2;
+            self.wrong /= 2;
+        }
+    }
+
     fn push(&mut self, secs: f64) {
         if self.samples.len() >= MAX_SAMPLES {
             self.samples.remove(0);
@@ -146,7 +171,7 @@ impl PairTracker {
         let Some(entry) = self.entry(from, to, kind) else {
             return;
         };
-        entry.typed = entry.typed.saturating_add(1);
+        entry.count(false);
         if let Some(iki) = iki.filter(|d| !d.is_zero() && *d <= MAX_IKI) {
             entry.push(iki.as_secs_f64());
         }
@@ -155,8 +180,7 @@ impl PairTracker {
     /// Anota que la segunda letra del par salió mal.
     pub fn record_error(&mut self, from: char, to: char, kind: TransitionKind) {
         if let Some(entry) = self.entry(from, to, kind) {
-            entry.typed = entry.typed.saturating_add(1);
-            entry.wrong = entry.wrong.saturating_add(1);
+            entry.count(true);
         }
     }
 
@@ -199,6 +223,55 @@ impl PairTracker {
         measured.into_iter().take(limit).map(|(_, e)| e).collect()
     }
 
+    /// Tiempo habitual del estudiante: la mediana de los tiempos ajustados de sus pares con
+    /// al menos [`MIN_SAMPLES`] muestras. `None` con menos de [`MIN_PAIRS`] pares medidos.
+    pub fn typical(&self) -> Option<Duration> {
+        let mut adjusted: Vec<Duration> = self
+            .entries
+            .values()
+            .filter(|e| e.samples.len() >= MIN_SAMPLES)
+            .filter_map(PairEntry::adjusted)
+            .collect();
+        if adjusted.len() < MIN_PAIRS {
+            return None;
+        }
+        adjusted.sort_unstable();
+        let mid = adjusted.len() / 2;
+        Some(if adjusted.len().is_multiple_of(2) {
+            (adjusted[mid - 1] + adjusted[mid]) / 2
+        } else {
+            adjusted[mid]
+        })
+    }
+
+    /// Los pares débiles, del que más cuesta al que menos, hasta `limit`.
+    ///
+    /// Un par es débil si es **lento** (tiene [`MIN_SAMPLES`] muestras y su tiempo ajustado
+    /// llega a [`SLOW_FACTOR`] veces el habitual) o si **se falla seguido** (se escribió
+    /// [`MIN_SAMPLES`] veces y la segunda letra salió mal [`ERROR_RATE`] de ellas o más, con
+    /// al menos [`MIN_ERRORS`] errores).
+    ///
+    /// El orden es por gravedad × frecuencia: un par común que cuesta un poco molesta más
+    /// que uno raro que cuesta mucho. `frequencies` sale de [`frequencies`]; un par que no
+    /// está ahí cuenta como si apareciera una vez.
+    pub fn weak(&self, frequencies: &PairFrequencies, limit: usize) -> Vec<WeakPair> {
+        let typical = self.typical();
+        let mut weak: Vec<(f64, WeakPair)> = self
+            .entries
+            .values()
+            .filter_map(|e| {
+                let pair = WeakPair::of(e, typical)?;
+                let frequency = frequencies.get(&(e.from, e.to)).copied().unwrap_or(0);
+                Some((pair.severity() * (1.0 + f64::from(frequency)), pair))
+            })
+            .collect();
+        weak.sort_by(|(a, x), (b, y)| {
+            b.total_cmp(a)
+                .then_with(|| (x.from, x.to).cmp(&(y.from, y.to)))
+        });
+        weak.into_iter().take(limit).map(|(_, pair)| pair).collect()
+    }
+
     /// Entrada del par, creada si hace falta. `None` si no es un par que se rastree.
     fn entry(&mut self, from: char, to: char, kind: TransitionKind) -> Option<&mut PairEntry> {
         let (from, to) = pair_key(from, to)?;
@@ -209,6 +282,78 @@ impl PairTracker {
         entry.kind = kind;
         Some(entry)
     }
+}
+
+/// Un par que le cuesta al estudiante (ver [`PairTracker::weak`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeakPair {
+    /// Primera letra.
+    pub from: char,
+    /// Segunda letra.
+    pub to: char,
+    /// Tipo de transición según los dedos.
+    pub kind: TransitionKind,
+    /// Mediana sin ajustar, que es lo que se muestra. `None` si todavía no hay tiempos.
+    pub median: Option<Duration>,
+    /// Tiempo ajustado dividido por el tiempo habitual (1 = como siempre). `None` si falta
+    /// alguno de los dos o hay pocas muestras.
+    pub excess: Option<f64>,
+    /// Tiempos guardados.
+    pub samples: usize,
+    /// Fracción de las veces que la segunda letra salió mal.
+    pub error_rate: f64,
+    /// Es débil por lento.
+    pub slow: bool,
+    /// Es débil porque se falla seguido.
+    pub error_prone: bool,
+}
+
+impl WeakPair {
+    /// Evalúa un par contra el tiempo habitual. `None` si no es débil.
+    fn of(e: &PairEntry, typical: Option<Duration>) -> Option<Self> {
+        let excess = (e.samples.len() >= MIN_SAMPLES)
+            .then(|| Some(e.adjusted()?.as_secs_f64() / typical?.as_secs_f64()))
+            .flatten()
+            .filter(|x| x.is_finite());
+        let slow = excess.is_some_and(|x| x >= SLOW_FACTOR);
+        let error_rate = e.error_rate();
+        let error_prone =
+            e.typed as usize >= MIN_SAMPLES && e.wrong >= MIN_ERRORS && error_rate >= ERROR_RATE;
+        (slow || error_prone).then_some(Self {
+            from: e.from,
+            to: e.to,
+            kind: e.kind,
+            median: e.median(),
+            excess,
+            samples: e.samples.len(),
+            error_rate,
+            slow,
+            error_prone,
+        })
+    }
+
+    /// Cuánto pasa el par de sus umbrales: 1 es justo en el límite.
+    fn severity(&self) -> f64 {
+        let slow = self.excess.unwrap_or(0.0) / SLOW_FACTOR;
+        let errors = self.error_rate / ERROR_RATE;
+        slow.max(errors)
+    }
+}
+
+/// Cuenta cuántas veces aparece cada par en una lista de palabras, para saber cuáles son
+/// comunes en el idioma.
+pub fn frequencies<'a>(words: impl IntoIterator<Item = &'a str>) -> PairFrequencies {
+    let mut out = PairFrequencies::new();
+    for word in words {
+        let letters: Vec<char> = word.chars().collect();
+        for w in letters.windows(2) {
+            if let Some(key) = pair_key(w[0], w[1]) {
+                let n = out.entry(key).or_insert(0);
+                *n = n.saturating_add(1);
+            }
+        }
+    }
+    out
 }
 
 /// Clave de un par: sus dos letras. `None` si alguna no es una letra, si alguna es mayúscula
@@ -401,6 +546,159 @@ mod tests {
         assert_eq!(order, vec![('t', 'h'), ('d', 'e'), ('a', 's')]);
         assert_eq!(t.slowest(1).len(), 1);
         assert_eq!(PairTracker::new().slowest(10).len(), 0);
+    }
+
+    /// Rastreo con ocho pares normales de la misma mano a 100 ms: el tiempo habitual.
+    fn baseline() -> PairTracker {
+        let mut t = PairTracker::new();
+        for to in ['b', 'c', 'd', 'f', 'g', 'h', 'j', 'k'] {
+            fill(&mut t, ('a', to), TransitionKind::SameHand, 100, 10);
+        }
+        t
+    }
+
+    fn fill(t: &mut PairTracker, pair: (char, char), kind: TransitionKind, iki: u64, n: usize) {
+        for _ in 0..n {
+            t.record(pair.0, pair.1, kind, Some(ms(iki)));
+        }
+    }
+
+    fn names(weak: &[WeakPair]) -> Vec<String> {
+        weak.iter().map(|w| format!("{}{}", w.from, w.to)).collect()
+    }
+
+    #[test]
+    fn typical_needs_enough_measured_pairs() {
+        assert_eq!(PairTracker::new().typical(), None);
+        let mut t = PairTracker::new();
+        for to in ['b', 'c', 'd', 'f', 'g', 'h', 'j'] {
+            fill(&mut t, ('a', to), TransitionKind::SameHand, 100, 10);
+        }
+        // Siete pares medidos y uno con pocas muestras: todavía no alcanza.
+        fill(
+            &mut t,
+            ('a', 'k'),
+            TransitionKind::SameHand,
+            100,
+            MIN_SAMPLES - 1,
+        );
+        assert_eq!(t.typical(), None);
+        assert_eq!(t.weak(&PairFrequencies::new(), 10), vec![]);
+        fill(&mut t, ('a', 'k'), TransitionKind::SameHand, 100, 1);
+        assert_eq!(t.typical(), Some(ms(100)));
+        // El tiempo habitual usa los tiempos ajustados: un par de manos distintas a 90 ms
+        // vale 100 ms.
+        fill(&mut t, ('a', 'l'), TransitionKind::OtherHand, 90, 10);
+        assert_eq!(t.typical(), Some(ms(100)));
+    }
+
+    #[test]
+    fn a_slow_pair_with_enough_samples_is_weak() {
+        let mut t = baseline();
+        fill(&mut t, ('e', 'r'), TransitionKind::SameHand, 130, 10);
+        // Lento, pero con pocas muestras.
+        fill(&mut t, ('z', 'x'), TransitionKind::SameHand, 400, 3);
+        // Apenas por debajo del umbral.
+        fill(&mut t, ('o', 'u'), TransitionKind::SameHand, 124, 10);
+        let weak = t.weak(&PairFrequencies::new(), 10);
+        assert_eq!(names(&weak), ["er"]);
+        let er = weak[0];
+        assert_eq!(er.median, Some(ms(130)));
+        assert!((er.excess.expect("exceso") - 1.3).abs() < 1e-9);
+        assert_eq!(er.samples, 10);
+        assert!(er.slow && !er.error_prone);
+        assert_eq!(er.kind, TransitionKind::SameHand);
+    }
+
+    #[test]
+    fn a_same_finger_pair_is_judged_by_its_adjusted_time() {
+        let mut t = baseline();
+        // 150 ms con el mismo dedo son 120 ms ajustados: no llega al umbral de 125 ms.
+        fill(&mut t, ('d', 'e'), TransitionKind::SameFinger, 150, 10);
+        // Los mismos 150 ms con manos distintas son 167 ms ajustados.
+        fill(&mut t, ('t', 'i'), TransitionKind::OtherHand, 150, 10);
+        assert_eq!(names(&t.weak(&PairFrequencies::new(), 10)), ["ti"]);
+    }
+
+    #[test]
+    fn a_fast_pair_that_fails_often_is_weak() {
+        let mut t = baseline();
+        fill(&mut t, ('i', 'o'), TransitionKind::SameHand, 80, 8);
+        for _ in 0..2 {
+            t.record_error('i', 'o', TransitionKind::SameHand);
+        }
+        // Un solo error en muchas veces no alcanza.
+        fill(&mut t, ('u', 'i'), TransitionKind::SameHand, 80, 20);
+        t.record_error('u', 'i', TransitionKind::SameHand);
+        // Un solo error en pocas veces pasa la proporción, pero es un tropiezo.
+        fill(&mut t, ('o', 'r'), TransitionKind::SameHand, 80, 5);
+        t.record_error('o', 'r', TransitionKind::SameHand);
+        // Siempre mal, pero pocas veces.
+        for _ in 0..MIN_SAMPLES - 1 {
+            t.record_error('q', 'w', TransitionKind::SameHand);
+        }
+        let weak = t.weak(&PairFrequencies::new(), 10);
+        assert_eq!(names(&weak), ["io"]);
+        assert!(!weak[0].slow && weak[0].error_prone);
+        assert!((weak[0].error_rate - 0.2).abs() < 1e-9);
+
+        // Un par que siempre sale mal no tiene tiempos, y es débil igual. No hace falta el
+        // tiempo habitual para verlo.
+        let mut t = PairTracker::new();
+        for _ in 0..MIN_SAMPLES {
+            t.record_error('q', 'w', TransitionKind::SameHand);
+        }
+        let weak = t.weak(&PairFrequencies::new(), 10);
+        assert_eq!(names(&weak), ["qw"]);
+        assert_eq!((weak[0].median, weak[0].excess), (None, None));
+    }
+
+    #[test]
+    fn frequent_pairs_come_first() {
+        let mut t = baseline();
+        fill(&mut t, ('z', 'x'), TransitionKind::SameHand, 200, 10);
+        fill(&mut t, ('e', 'r'), TransitionKind::SameHand, 130, 10);
+        fill(&mut t, ('t', 'i'), TransitionKind::SameHand, 130, 10);
+        let freq = frequencies(["her", "over", "tie", "Zx", "a-er", "eel"]);
+        assert_eq!(freq.get(&('e', 'r')), Some(&3));
+        assert_eq!(freq.get(&('t', 'i')), Some(&1));
+        // Ni mayúsculas ni letras repetidas.
+        assert_eq!(freq.get(&('z', 'x')), None);
+        assert_eq!(freq.get(&('e', 'e')), None);
+        // Igual de lentos, «er» es más común que «ti»; «zx» es el más lento pero no aparece.
+        assert_eq!(names(&t.weak(&freq, 10)), ["er", "ti", "zx"]);
+        assert_eq!(names(&t.weak(&freq, 2)), ["er", "ti"]);
+        // Sin frecuencias, manda la gravedad.
+        assert_eq!(names(&t.weak(&PairFrequencies::new(), 1)), ["zx"]);
+    }
+
+    #[test]
+    fn a_pair_that_improved_stops_being_weak() {
+        let mut t = baseline();
+        fill(
+            &mut t,
+            ('e', 'r'),
+            TransitionKind::SameHand,
+            200,
+            MAX_SAMPLES,
+        );
+        for _ in 0..12 {
+            t.record_error('e', 'r', TransitionKind::SameHand);
+        }
+        let weak = t.weak(&PairFrequencies::new(), 10);
+        assert!(weak[0].slow && weak[0].error_prone);
+        // Las últimas muestras son rápidas y sin errores: los tiempos viejos se van y los
+        // errores viejos pesan cada vez menos.
+        fill(
+            &mut t,
+            ('e', 'r'),
+            TransitionKind::SameHand,
+            100,
+            4 * MAX_SAMPLES,
+        );
+        assert_eq!(t.weak(&PairFrequencies::new(), 10), vec![]);
+        let er = t.get('e', 'r').expect("er");
+        assert!(er.typed <= ERROR_WINDOW, "{er:?}");
     }
 
     #[test]

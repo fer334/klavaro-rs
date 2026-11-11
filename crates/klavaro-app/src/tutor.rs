@@ -15,7 +15,7 @@ use klavaro_core::goals::{Comment, CommentContext, GoalCheck, Goals};
 use klavaro_core::keyboard::FingerMap;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::metrics::Stats;
-use klavaro_core::pairs::PairTracker;
+use klavaro_core::pairs::{self, PairFrequencies, PairTracker};
 use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
@@ -214,7 +214,9 @@ const KEYLOG_PAIRS: usize = 10;
 
 /// Los pares de letras más lentos del rastreo, para calibrar (ver
 /// `PLAN_TRANSICIONES_DEBILES.md`).
-fn slow_pairs_report(pairs: &PairTracker) -> String {
+///
+/// `frequencies` dice cuán común es cada par en el idioma, para ordenar los débiles.
+fn slow_pairs_report(pairs: &PairTracker, frequencies: &PairFrequencies) -> String {
     use std::fmt::Write as _;
     let ms = |d: Option<Duration>| d.map_or(0.0, |d| d.as_secs_f64() * 1000.0);
     let mut out = String::from(
@@ -232,6 +234,31 @@ fn slow_pairs_report(pairs: &PairTracker) -> String {
             e.samples().len(),
             e.wrong,
             e.typed
+        );
+    }
+    match pairs.typical() {
+        Some(typical) => {
+            let _ = writeln!(out, "tiempo habitual: {:.0} ms", ms(Some(typical)));
+        }
+        None => out.push_str("tiempo habitual: todavía no hay suficientes pares medidos\n"),
+    }
+    out.push_str("pares débiles:\npar\tmediana\texceso\terrores\tpor qué\tfrecuencia\n");
+    for w in pairs.weak(frequencies, KEYLOG_PAIRS) {
+        let why = match (w.slow, w.error_prone) {
+            (true, true) => "lento y se falla",
+            (true, false) => "lento",
+            _ => "se falla",
+        };
+        let _ = writeln!(
+            out,
+            "{}{}\t{}\t{}\t{:.0} %\t{why}\t{}",
+            w.from,
+            w.to,
+            w.median
+                .map_or("-".to_owned(), |d| format!("{:.0}", ms(Some(d)))),
+            w.excess.map_or("-".to_owned(), |x| format!("{x:.2}")),
+            w.error_rate * 100.0,
+            frequencies.get(&(w.from, w.to)).copied().unwrap_or(0)
         );
     }
     out
@@ -598,7 +625,10 @@ impl Tutor {
         if let Some(log) = &self.strokes {
             let (target, states) = (self.session.target(), self.session.states());
             eprintln!("{}", log.dump(target, states, analysis.as_ref()));
-            eprintln!("{}", slow_pairs_report(&self.pairs));
+            // Sin la lista de palabras, los débiles se ordenan sólo por gravedad.
+            let words = assets::words(&self.spec.language).unwrap_or_default();
+            let frequencies = pairs::frequencies(words.iter().map(String::as_str));
+            eprintln!("{}", slow_pairs_report(&self.pairs, &frequencies));
         }
     }
 
@@ -1193,7 +1223,11 @@ mod tests {
             "{samples:?}"
         );
         assert!(t.pairs().entries().all(|e| e.from != ' ' && e.to != ' '));
-        assert!(slow_pairs_report(t.pairs()).starts_with("pares más lentos"));
+        let report = slow_pairs_report(t.pairs(), &PairFrequencies::new());
+        assert!(report.starts_with("pares más lentos"), "{report}");
+        // Todos los pares tardaron lo mismo: ninguno es débil, salvo el que siempre falla
+        // si llegara a las muestras mínimas (acá tiene una sola).
+        assert!(report.ends_with("frecuencia\n"), "{report}");
 
         // Sin los datos de cada tecla (`handle` a secas) no se carga nada.
         let mut plain = lesson_tutor(20, 30);

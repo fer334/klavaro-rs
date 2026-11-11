@@ -54,9 +54,9 @@ mirar los datos (Fase 4).
 | 4 | Qué muestra cuenta | Sólo transiciones con las dos letras correctas a la primera y con tiempos medidos. IKI mayor a 1 s se descarta | Un IKI de 2 s es una distracción. Es la misma condición de «medida» de `transitions::analyze`. |
 | 5 | Mínimo de muestras | 6 por par | Menos que eso es ruido. |
 | 6 | Tiempo de un par | Mediana de sus muestras, dividida por el factor del tipo (otra mano 0,9; misma mano 1,0; mismo dedo 1,25) | Sin el factor, los pares del mismo dedo salen siempre como los más lentos. Feit da casi los mismos cocientes. |
-| 7 | Par lento | Tiempo ajustado ≥ 1,25 × la mediana de los tiempos ajustados de todos los pares del estudiante | Se compara al estudiante consigo mismo, no contra 100 ms. Se ajusta solo a medida que mejora. |
-| 8 | Par que se falla | Errores en ≥ 15 % de las veces que se escribió, con el mínimo de muestras | Un par rápido que falla seguido también es débil. |
-| 9 | Orden | Por `exceso de tiempo × frecuencia del par en la lista de palabras` | Un `er` lento cuesta más que un `zx` lento. |
+| 7 | Par lento | Tiempo ajustado ≥ 1,25 × la mediana de los tiempos ajustados de todos los pares del estudiante. Hacen falta 8 pares medidos para tener esa referencia | Se compara al estudiante consigo mismo, no contra 100 ms. Se ajusta solo a medida que mejora. |
+| 8 | Par que se falla | Errores en ≥ 15 % de las veces que se escribió, con el mínimo de muestras y al menos 2 errores | Un par rápido que falla seguido también es débil. |
+| 9 | Orden | Por `gravedad × (1 + frecuencia del par en la lista de palabras)` | Un `er` lento cuesta más que un `zx` lento. |
 | 10 | Cuántos pares por práctica | Hasta 4. Con menos de 2 pares débiles, el botón no aparece | Con más pares, cada uno se repite muy poco en un minuto. |
 | 11 | Texto de la práctica | Palabras reales y comunes de `C.words`: 2 de cada 3 contienen un par débil, el resto son palabras comunes sin ellos | DeFulio y Ruopp. La mezcla evita que se aprenda de memoria. |
 | 12 | Nombres visibles | «Transiciones lentas» para la vista y «Practicar transiciones lentas» para el botón | «Lentas» dice lo que se ve; sigue a «Transiciones fluidas». |
@@ -253,6 +253,30 @@ y 122 ms. Lo que frena es el Shift, y eso solo ponía a `th` primero en la lista
 
 - `cargo test -p klavaro-core` cubre la tabla.
 - Con el rastreo vacío o con pocas muestras, `weak` devuelve una lista vacía.
+
+### Resultado
+
+Hecha.
+
+- `PairTracker::typical` da el tiempo habitual: la mediana de los tiempos ajustados de los pares
+  con 6 muestras o más. Necesita al menos **8 pares medidos** (`MIN_PAIRS`); antes de eso no hay
+  referencia y ningún par sale como lento.
+- `PairTracker::weak(frecuencias, límite)` devuelve `WeakPair`, que además de lo previsto dice
+  por qué es débil (`slow`, `error_prone`). `median` y `excess` son opcionales: un par que siempre
+  sale mal no tiene tiempos y es débil igual, aunque todavía no haya tiempo habitual.
+- El orden es `gravedad × (1 + frecuencia)`, donde la gravedad es cuánto pasa el par de su
+  umbral: `exceso / 1,25` o `errores / 15 %`, lo que sea mayor. Con la frecuencia contada sobre
+  todo `C.words`, entre pares débiles casi siempre manda la frecuencia.
+- **Los errores viejos se olvidan.** Los tiempos ya se renovaban solos (últimas 30 muestras),
+  pero las cuentas de «escritos» y «fallados» eran de por vida. Ahora, al pasar de 60 veces
+  escritas, las dos se reducen a la mitad: la proporción queda igual y lo nuevo pesa más.
+- **Un solo error no alcanza.** Con datos reales, `or` salía como «se falla» por 1 error en 6
+  intentos (17 %) siendo de los pares rápidos. Ahora hacen falta al menos 2 errores
+  (`MIN_ERRORS`) además del 15 %.
+- `frequencies(palabras)` cuenta los pares de una lista de palabras con la misma regla de
+  `pair_key` (sin mayúsculas ni letras repetidas).
+- `KLAVARO_KEYLOG=1` ahora agrega el tiempo habitual y la lista de pares débiles con su exceso,
+  sus errores, el motivo y la frecuencia.
 
 ## Fase 3: ver las transiciones lentas
 
