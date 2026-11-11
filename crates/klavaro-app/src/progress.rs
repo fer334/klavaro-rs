@@ -7,15 +7,21 @@
 //!
 //! Adaptabilidad suma dos gráficos de barras por tecla, con el rastreo del teclado actual:
 //! errores y tiempo promedio de pulsación, de mayor a menor.
+//!
+//! La Progresión suma otro de barras, por par de letras: las transiciones lentas, con el tiempo
+//! habitual del estudiante como referencia (ver `PLAN_TRANSICIONES_DEBILES.md`).
 
 use klavaro_core::Module;
 use klavaro_core::goals::Goals;
+use klavaro_core::pairs::{PairTracker, WeakPair};
 use klavaro_core::progression::{FULL_STARS_ACCURACY, Slot};
 use klavaro_core::tracker::KeyTracker;
 use klavaro_store::{History, SessionFilter, StoreError};
 
 /// Cantidad de sesiones que muestra cada gráfico (`DATA_POINTS` en `plot.h`).
 pub(crate) const DATA_POINTS: usize = 50;
+/// Cantidad de pares que muestra el gráfico de transiciones lentas.
+pub(crate) const PAIR_BARS: usize = 10;
 
 /// Qué se grafica.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +40,10 @@ pub(crate) enum Metric {
     TouchTimes,
     /// Estrellas por sección (sólo Progresión). No sale del historial de sesiones.
     Stars,
+    /// Pares de letras lentos, en milisegundos (sólo Progresión). Sale del rastreo por par.
+    SlowTransitions,
+    /// Pares de letras más rápidos, en milisegundos (sólo Progresión).
+    FastTransitions,
 }
 
 impl Metric {
@@ -42,7 +52,13 @@ impl Metric {
         match module {
             Module::Fluidity => &[Self::Accuracy, Self::Speed, Self::Fluidity, Self::Score],
             Module::Adaptability => &[Self::Accuracy, Self::Speed, Self::Errors, Self::TouchTimes],
-            Module::Progression => &[Self::Speed, Self::Accuracy, Self::Stars],
+            Module::Progression => &[
+                Self::Speed,
+                Self::Accuracy,
+                Self::Stars,
+                Self::SlowTransitions,
+                Self::FastTransitions,
+            ],
             Module::Basic | Module::Velocity => &[Self::Accuracy, Self::Speed],
         }
     }
@@ -57,18 +73,28 @@ impl Metric {
             Self::Errors => "progress-errors",
             Self::TouchTimes => "progress-touch-times",
             Self::Stars => "sections-stars",
+            Self::SlowTransitions => "progress-slow-transitions",
+            Self::FastTransitions => "progress-fast-transitions",
         }
     }
 
-    /// Si es un gráfico de barras por tecla (sale del rastreo, no del historial).
+    /// Si es un gráfico de barras por tecla o por par (sale del rastreo, no del historial).
     pub(crate) fn per_key(self) -> bool {
-        matches!(self, Self::Errors | Self::TouchTimes)
+        matches!(
+            self,
+            Self::Errors | Self::TouchTimes | Self::SlowTransitions | Self::FastTransitions
+        )
+    }
+
+    /// Si es un gráfico de barras por par de letras.
+    pub(crate) fn per_pair(self) -> bool {
+        matches!(self, Self::SlowTransitions | Self::FastTransitions)
     }
 
     /// Decimales para mostrar un valor.
     pub(crate) fn decimals(self) -> usize {
         match self {
-            Self::Errors | Self::Stars => 0,
+            Self::Errors | Self::Stars | Self::SlowTransitions | Self::FastTransitions => 0,
             Self::TouchTimes => 3,
             Self::Accuracy | Self::Speed | Self::Fluidity | Self::Score => 1,
         }
@@ -85,6 +111,7 @@ impl Metric {
             Self::Errors => (0.0, 1.05),
             Self::TouchTimes => (0.0, 0.0105),
             Self::Stars => (0.0, 150.0),
+            Self::SlowTransitions | Self::FastTransitions => (0.0, 105.0),
         }
     }
 
@@ -94,7 +121,12 @@ impl Metric {
             Self::Accuracy => Some(goal.accuracy),
             Self::Speed => Some(goal.speed),
             Self::Fluidity => goal.fluidity,
-            Self::Score | Self::Errors | Self::TouchTimes | Self::Stars => None,
+            Self::Score
+            | Self::Errors
+            | Self::TouchTimes
+            | Self::Stars
+            | Self::SlowTransitions
+            | Self::FastTransitions => None,
         }
     }
 }
@@ -121,8 +153,10 @@ pub(crate) struct ChartQuery {
 pub(crate) struct ChartPoint {
     /// Instante (segundos desde 1970); 0 en los gráficos por tecla.
     pub(crate) at: i64,
-    /// Tecla, en los gráficos por tecla.
+    /// Tecla, en los gráficos por tecla; primera letra, en el de pares.
     pub(crate) key: Option<char>,
+    /// Segunda letra, en el gráfico de pares.
+    pub(crate) to: Option<char>,
     /// Valor.
     pub(crate) value: f64,
 }
@@ -134,8 +168,10 @@ pub(crate) struct Chart {
     pub(crate) metric: Metric,
     /// Puntos, del más viejo al más nuevo.
     pub(crate) points: Vec<ChartPoint>,
-    /// Meta del módulo, si la hay.
+    /// Meta del módulo, si la hay. En las transiciones lentas, el tiempo habitual.
     pub(crate) goal: Option<f64>,
+    /// Detalle de cada barra del gráfico de pares, en el orden de `points`.
+    pub(crate) pairs: Vec<WeakPair>,
     /// Mínimo del eje vertical.
     pub(crate) min: f64,
     /// Máximo del eje vertical.
@@ -162,6 +198,7 @@ impl Chart {
                 .map(|s| ChartPoint {
                     at: s.at,
                     key: None,
+                    to: None,
                     value: s.score,
                 })
                 .collect()
@@ -172,6 +209,7 @@ impl Chart {
                 .map(|s| ChartPoint {
                     at: s.at,
                     key: None,
+                    to: None,
                     value: match q.metric {
                         Metric::Speed => s.wpm,
                         Metric::Fluidity => s.fluidity,
@@ -213,17 +251,55 @@ impl Chart {
             .map(|(ch, value)| ChartPoint {
                 at: 0,
                 key: Some(ch),
+                to: None,
                 value,
             })
             .collect();
         Self::new(metric, points, None)
     }
 
+    /// Barras de los [`PAIR_BARS`] pares de letras más lentos (o, con
+    /// [`Metric::FastTransitions`], los más rápidos): la altura es la mediana en milisegundos
+    /// y la línea de referencia, el tiempo habitual del estudiante.
+    pub(crate) fn pairs(metric: Metric, tracker: &PairTracker) -> Self {
+        let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+        let pairs = if metric == Metric::FastTransitions {
+            tracker.fastest(PAIR_BARS)
+        } else {
+            tracker.slow(PAIR_BARS)
+        };
+        let points = pairs
+            .iter()
+            .map(|w| ChartPoint {
+                at: 0,
+                key: Some(w.from),
+                to: Some(w.to),
+                value: w.median.map_or(0.0, ms),
+            })
+            .collect();
+        let mut chart = Self::new(metric, points, tracker.typical().map(ms));
+        chart.pairs = pairs;
+        chart
+    }
+
+    /// Posiciones horizontales del gráfico: cada punto ocupa una, aunque haya pocos.
+    pub(crate) fn slots(&self) -> usize {
+        if self.metric.per_pair() {
+            PAIR_BARS
+        } else {
+            DATA_POINTS
+        }
+    }
+
     /// Gráfico con el eje vertical ajustado para que entren todos los puntos y la meta.
     pub(crate) fn new(metric: Metric, points: Vec<ChartPoint>, goal: Option<f64>) -> Self {
         let (mut min, mut max) = metric.base_range();
         if metric.per_key() {
-            let top = points.iter().map(|p| p.value).fold(0.0, f64::max);
+            let top = points
+                .iter()
+                .map(|p| p.value)
+                .chain(goal)
+                .fold(0.0, f64::max);
             max = max.max(1.05 * top);
             let mut step = nice_step(max / 5.0);
             if metric == Metric::Errors {
@@ -233,6 +309,7 @@ impl Chart {
                 metric,
                 points,
                 goal,
+                pairs: Vec::new(),
                 min,
                 max: (max / step).ceil() * step,
                 step,
@@ -251,6 +328,7 @@ impl Chart {
             metric,
             points,
             goal,
+            pairs: Vec::new(),
             min,
             max,
             step,
@@ -286,7 +364,9 @@ fn grid_step(metric: Metric) -> f64 {
         Metric::Accuracy => 10.0,
         Metric::Speed | Metric::Fluidity => 20.0,
         Metric::Score => 2.0,
-        Metric::Errors | Metric::TouchTimes => 1.0,
+        Metric::Errors | Metric::TouchTimes | Metric::SlowTransitions | Metric::FastTransitions => {
+            1.0
+        }
         Metric::Stars => 30.0,
     }
 }
@@ -471,6 +551,7 @@ mod tests {
             [ChartPoint {
                 at: 1,
                 key: None,
+                to: None,
                 value: 4.5
             }]
         );
@@ -484,6 +565,7 @@ mod tests {
                 .map(|&value| ChartPoint {
                     at: 0,
                     key: None,
+                    to: None,
                     value,
                 })
                 .collect::<Vec<_>>()
@@ -506,7 +588,20 @@ mod tests {
             for &m in Metric::for_module(Module::Adaptability) {
                 assert!(tr.has(m.label_key()), "{code}: {}", m.label_key());
             }
+            for &m in Metric::for_module(Module::Progression) {
+                assert!(tr.has(m.label_key()), "{code}: {}", m.label_key());
+            }
             for key in [
+                "progress-pairs",
+                "progress-pairs-waiting",
+                "progress-pairs-none",
+                "progress-typical",
+                "progress-pair-detail",
+                "progress-ms",
+                "transition-other-hand",
+                "transition-same-hand",
+                "transition-same-finger",
+                "sections-slow-transitions",
                 "progress-wpm-unit",
                 "progress-empty",
                 "progress-sessions",
@@ -562,6 +657,49 @@ mod tests {
         let empty = Chart::per_key(Metric::Errors, &KeyTracker::new());
         assert_eq!(empty.points, []);
         assert!(empty.grid().len() > 1);
+    }
+
+    #[test]
+    fn slow_pair_bars_come_from_the_pair_tracker() {
+        use klavaro_core::transitions::TransitionKind;
+
+        let empty = Chart::pairs(Metric::SlowTransitions, &PairTracker::new());
+        assert_eq!((empty.points.len(), empty.goal), (0, None));
+        assert!(empty.grid().len() > 1);
+
+        let mut tracker = PairTracker::new();
+        let mut fill = |from, to, iki: u64| {
+            for _ in 0..10 {
+                let iki = Some(Duration::from_millis(iki));
+                tracker.record(from, to, TransitionKind::SameHand, iki);
+            }
+        };
+        for to in ['b', 'c', 'd', 'f', 'g', 'h', 'j', 'k'] {
+            fill('a', to, 100);
+        }
+        fill('e', 'r', 130);
+        fill('p', 'o', 180);
+        let fast = Chart::pairs(Metric::FastTransitions, &tracker);
+        assert_eq!(fast.points.len(), PAIR_BARS);
+        assert_eq!(
+            fast.points[0].key,
+            Some('a'),
+            "del más rápido al menos rápido"
+        );
+        assert_eq!(fast.goal, Some(100.0));
+        let chart = Chart::pairs(Metric::SlowTransitions, &tracker);
+        let names: Vec<_> = chart.points.iter().map(|p| (p.key, p.to)).collect();
+        assert_eq!(
+            names,
+            [(Some('p'), Some('o')), (Some('e'), Some('r'))],
+            "del más lento al menos lento"
+        );
+        assert!((chart.points[0].value - 180.0).abs() < 1e-9);
+        assert_eq!(chart.goal, Some(100.0));
+        assert_eq!(chart.pairs.len(), 2);
+        assert_eq!(chart.slots(), PAIR_BARS);
+        assert!(chart.max >= 180.0 && chart.max <= 250.0, "{}", chart.max);
+        assert_eq!(chart.axis_decimals(), 0);
     }
 
     #[test]

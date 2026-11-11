@@ -272,6 +272,44 @@ impl PairTracker {
         weak.into_iter().take(limit).map(|(_, pair)| pair).collect()
     }
 
+    /// Los pares lentos, del más lento (comparado con el tiempo habitual) al menos lento, hasta
+    /// `limit`. Es lo que se le muestra al estudiante; los que sólo se fallan no entran.
+    pub fn slow(&self, limit: usize) -> Vec<WeakPair> {
+        let mut slow: Vec<WeakPair> = self
+            .weak(&PairFrequencies::new(), usize::MAX)
+            .into_iter()
+            .filter(|w| w.slow)
+            .collect();
+        slow.sort_by(|x, y| {
+            let excess = |w: &WeakPair| w.excess.unwrap_or(0.0);
+            excess(y)
+                .total_cmp(&excess(x))
+                .then_with(|| (x.from, x.to).cmp(&(y.from, y.to)))
+        });
+        slow.truncate(limit);
+        slow
+    }
+
+    /// Los pares más rápidos comparados con el tiempo habitual, del más rápido al menos
+    /// rápido, hasta `limit`. Sólo los que tienen [`MIN_SAMPLES`] muestras; vacío mientras no
+    /// haya tiempo habitual.
+    pub fn fastest(&self, limit: usize) -> Vec<WeakPair> {
+        let typical = self.typical();
+        let mut fast: Vec<(f64, WeakPair)> = self
+            .entries
+            .values()
+            .filter_map(|e| {
+                let pair = WeakPair::evaluate(e, typical);
+                Some((pair.excess?, pair))
+            })
+            .collect();
+        fast.sort_by(|(a, x), (b, y)| {
+            a.total_cmp(b)
+                .then_with(|| (x.from, x.to).cmp(&(y.from, y.to)))
+        });
+        fast.into_iter().take(limit).map(|(_, pair)| pair).collect()
+    }
+
     /// Entrada del par, creada si hace falta. `None` si no es un par que se rastree.
     fn entry(&mut self, from: char, to: char, kind: TransitionKind) -> Option<&mut PairEntry> {
         let (from, to) = pair_key(from, to)?;
@@ -311,6 +349,11 @@ pub struct WeakPair {
 impl WeakPair {
     /// Evalúa un par contra el tiempo habitual. `None` si no es débil.
     fn of(e: &PairEntry, typical: Option<Duration>) -> Option<Self> {
+        Some(Self::evaluate(e, typical)).filter(|w| w.slow || w.error_prone)
+    }
+
+    /// Evalúa un par contra el tiempo habitual, sea débil o no.
+    fn evaluate(e: &PairEntry, typical: Option<Duration>) -> Self {
         let excess = (e.samples.len() >= MIN_SAMPLES)
             .then(|| Some(e.adjusted()?.as_secs_f64() / typical?.as_secs_f64()))
             .flatten()
@@ -319,7 +362,7 @@ impl WeakPair {
         let error_rate = e.error_rate();
         let error_prone =
             e.typed as usize >= MIN_SAMPLES && e.wrong >= MIN_ERRORS && error_rate >= ERROR_RATE;
-        (slow || error_prone).then_some(Self {
+        Self {
             from: e.from,
             to: e.to,
             kind: e.kind,
@@ -329,7 +372,7 @@ impl WeakPair {
             error_rate,
             slow,
             error_prone,
-        })
+        }
     }
 
     /// Cuánto pasa el par de sus umbrales: 1 es justo en el límite.
@@ -651,6 +694,37 @@ mod tests {
         let weak = t.weak(&PairFrequencies::new(), 10);
         assert_eq!(names(&weak), ["qw"]);
         assert_eq!((weak[0].median, weak[0].excess), (None, None));
+    }
+
+    #[test]
+    fn slow_lists_only_slow_pairs_from_the_slowest() {
+        let mut t = baseline();
+        fill(&mut t, ('e', 'r'), TransitionKind::SameHand, 130, 10);
+        fill(&mut t, ('z', 'x'), TransitionKind::SameHand, 200, 10);
+        // Mismo dedo: 150 ms ajustado da 120 ms, que no llega a lento.
+        fill(&mut t, ('d', 'e'), TransitionKind::SameFinger, 150, 10);
+        // Rápido pero se falla: es débil, no lento.
+        fill(&mut t, ('i', 'o'), TransitionKind::SameHand, 80, 8);
+        for _ in 0..2 {
+            t.record_error('i', 'o', TransitionKind::SameHand);
+        }
+        assert_eq!(names(&t.slow(10)), ["zx", "er"]);
+        assert_eq!(names(&t.slow(1)), ["zx"]);
+        assert_eq!(t.slow(10)[1].median, Some(ms(130)));
+        assert_eq!(PairTracker::new().slow(10).len(), 0);
+
+        // Los más rápidos, al revés: «io» primero, y nunca los que tienen pocas muestras.
+        fill(
+            &mut t,
+            ('q', 'w'),
+            TransitionKind::SameHand,
+            20,
+            MIN_SAMPLES - 1,
+        );
+        assert_eq!(names(&t.fastest(2)), ["io", "ab"]);
+        assert!(!t.fastest(2)[0].slow);
+        assert_eq!(t.fastest(100).len(), 12);
+        assert_eq!(PairTracker::new().fastest(10).len(), 0);
     }
 
     #[test]

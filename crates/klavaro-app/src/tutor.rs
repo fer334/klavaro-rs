@@ -15,7 +15,7 @@ use klavaro_core::goals::{Comment, CommentContext, GoalCheck, Goals};
 use klavaro_core::keyboard::FingerMap;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::metrics::Stats;
-use klavaro_core::pairs::{self, PairFrequencies, PairTracker};
+use klavaro_core::pairs::{self, PairFrequencies, PairTracker, WeakPair};
 use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
@@ -155,6 +155,8 @@ pub(crate) struct Outcome {
     /// En la Progresión: transiciones del intento con que se compara (lo pone la interfaz al
     /// guardar el intento).
     pub(crate) previous_transitions: Option<PreviousTransitions>,
+    /// En la Progresión: los pares de letras más lentos, contando ya esta lección.
+    pub(crate) slow_pairs: Vec<WeakPair>,
 }
 
 /// Efecto de una acción que la interfaz tiene que aplicar.
@@ -211,6 +213,8 @@ const KEYLOG_ENV: &str = "KLAVARO_KEYLOG";
 
 /// Cuántos pares lentos lista el registro de depuración.
 const KEYLOG_PAIRS: usize = 10;
+/// Cuántos pares lentos se muestran en el resultado de una lección.
+const RESULT_PAIRS: usize = 5;
 
 /// Los pares de letras más lentos del rastreo, para calibrar (ver
 /// `PLAN_TRANSICIONES_DEBILES.md`).
@@ -595,6 +599,10 @@ impl Tutor {
         }
         if let Some(letters) = self.letters() {
             self.pairs.record_exercise(self.session.target(), &letters);
+            let slow = self.pairs.slow(RESULT_PAIRS);
+            if let Some(outcome) = &mut self.outcome {
+                outcome.slow_pairs = slow;
+            }
         }
     }
 
@@ -711,6 +719,7 @@ impl Tutor {
             source: self.source.clone(),
             transitions: None,
             previous_transitions: None,
+            slow_pairs: Vec::new(),
         });
     }
 

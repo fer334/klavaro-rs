@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Dibujo de los gráficos de progreso con el `canvas` de iced, con los colores de `plot.h`.
 //!
-//! Igual que en el original, cada sesión ocupa una posición fija de [`DATA_POINTS`] + 2, así
+//! Igual que en el original, cada sesión ocupa una posición fija de [`crate::progress::DATA_POINTS`] + 2, así
 //! que con pocas sesiones la línea queda a la izquierda. Al pasar el mouse se muestra la
-//! fecha y el valor del punto más cercano. Los gráficos por tecla de Adaptabilidad son de
-//! barras, con cada tecla debajo de su barra.
+//! fecha y el valor del punto más cercano. Los gráficos por tecla de Adaptabilidad y el de
+//! pares de letras de la Progresión son de barras, con la tecla o el par debajo de su barra.
 
 use iced::alignment::{Horizontal, Vertical};
 use iced::widget::canvas::{self, Frame, Geometry, Path, Stroke, Text};
@@ -12,7 +12,7 @@ use iced::{Color, Pixels, Point, Rectangle, Renderer, Size, Theme, mouse};
 
 use klavaro_store::date::format_date_time;
 
-use crate::progress::{Chart, DATA_POINTS, Metric};
+use crate::progress::{Chart, ChartPoint, Metric};
 
 /// Márgenes del área de datos: izquierda (etiquetas del eje), arriba (dato señalado), derecha
 /// y abajo.
@@ -22,6 +22,8 @@ const RIGHT: f32 = 12.0;
 const BOTTOM: f32 = 12.0;
 /// Margen inferior de los gráficos de barras, donde van las teclas.
 const BOTTOM_KEYS: f32 = 24.0;
+/// Ancho máximo de una barra, para cuando hay pocas posiciones.
+const MAX_BAR: f32 = 44.0;
 
 /// Gráfico listo para el `canvas`.
 pub(crate) struct Plot<'a> {
@@ -29,13 +31,21 @@ pub(crate) struct Plot<'a> {
     pub(crate) chart: &'a Chart,
     /// Unidad del valor señalado (` %`, ` PPM`…).
     pub(crate) unit: String,
+    /// Texto extra de cada punto al señalarlo, en el orden de los puntos (puede estar vacío).
+    pub(crate) details: Vec<String>,
+}
+
+/// Nombre de un punto de un gráfico de barras: la tecla o el par de letras.
+fn bar_name(p: &ChartPoint) -> Option<String> {
+    let key = p.key?;
+    Some(p.to.map_or_else(|| key.to_string(), |to| format!("{key}{to}")))
 }
 
 /// Línea, borde y halo de la serie, como `PLOT_*_2` y `PLOT_*_3` del original.
 fn series_colors(metric: Metric) -> (Color, Color) {
     match metric {
         // Las barras de errores usan el mismo verde que la precisión (`PLOT_GREEN_2`).
-        Metric::Accuracy | Metric::Errors | Metric::Stars => (
+        Metric::Accuracy | Metric::Errors | Metric::Stars | Metric::FastTransitions => (
             Color::from_rgb8(0x66, 0xaa, 0x88),
             Color::from_rgb8(0xaa, 0xee, 0xbb),
         ),
@@ -52,7 +62,7 @@ fn series_colors(metric: Metric) -> (Color, Color) {
             Color::from_rgb8(0xff, 0xee, 0xaa),
         ),
         // `PLOT_PURPLE` en las barras de tiempos del original.
-        Metric::TouchTimes => (
+        Metric::TouchTimes | Metric::SlowTransitions => (
             Color::from_rgb8(0xbb, 0x44, 0xee),
             Color::from_rgb8(0xdd, 0xaa, 0xff),
         ),
@@ -80,16 +90,21 @@ impl Plot<'_> {
         let p = self.chart.points.get(index)?;
         let decimals = self.chart.metric.decimals();
         let value = format!("{:.decimals$}{}", p.value, self.unit);
-        Some(match p.key {
-            Some(key) => format!("{key} · {value}"),
+        let mut text = match bar_name(p) {
+            Some(name) => format!("{name} · {value}"),
             None => format!("{} · {value}", format_date_time(p.at)),
-        })
+        };
+        if let Some(detail) = self.details.get(index) {
+            text.push_str(" · ");
+            text.push_str(detail);
+        }
+        Some(text)
     }
 
     // Las coordenadas de pantalla son f32; la precisión de f64 no hace falta para dibujar.
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    fn x(area: Rectangle, index: usize) -> f32 {
-        area.x + area.width * (index + 1) as f32 / (DATA_POINTS + 1) as f32
+    fn x(&self, area: Rectangle, index: usize) -> f32 {
+        area.x + area.width * (index + 1) as f32 / (self.chart.slots() + 1) as f32
     }
 
     #[allow(clippy::cast_possible_truncation)]
@@ -108,7 +123,7 @@ impl Plot<'_> {
         }
         let per_key = self.chart.metric.per_key();
         let distance = |i: usize| {
-            let dx = Self::x(area, i) - cursor.x;
+            let dx = self.x(area, i) - cursor.x;
             if per_key {
                 dx.abs()
             } else {
@@ -196,7 +211,7 @@ impl<Message> canvas::Program<Message> for Plot<'_> {
             .points
             .iter()
             .enumerate()
-            .map(|(i, p)| Point::new(Self::x(area, i), self.y(area, p.value)))
+            .map(|(i, p)| Point::new(self.x(area, i), self.y(area, p.value)))
             .collect();
         let (line, halo) = series_colors(self.chart.metric);
         let hovered = cursor
@@ -269,8 +284,8 @@ impl Plot<'_> {
         let (line, halo) = series_colors(self.chart.metric);
         let base = self.y(area, self.chart.min);
         #[allow(clippy::cast_precision_loss)]
-        let slot = area.width / (DATA_POINTS + 1) as f32;
-        let width = (slot * 0.7).max(2.0);
+        let slot = area.width / (self.chart.slots() + 1) as f32;
+        let width = (slot * 0.7).clamp(2.0, MAX_BAR);
         for (i, (&p, data)) in points.iter().zip(&self.chart.points).enumerate() {
             let top_left = Point::new(p.x - width / 2.0, p.y);
             let size = Size::new(width, (base - p.y).max(1.0));
@@ -280,9 +295,9 @@ impl Plot<'_> {
                 &Path::rectangle(top_left, size),
                 Stroke::default().with_color(line).with_width(1.0),
             );
-            if let Some(key) = data.key {
+            if let Some(content) = bar_name(data) {
                 frame.fill_text(Text {
-                    content: key.to_string(),
+                    content,
                     position: Point::new(p.x, base + 4.0),
                     color: ink,
                     size: Pixels(13.0),

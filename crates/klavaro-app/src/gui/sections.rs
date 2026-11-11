@@ -6,6 +6,7 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Task};
 
+use klavaro_core::pairs::WeakPair;
 use klavaro_core::progression::{
     FIRST_SECTION, FULL_STARS_ACCURACY, LAST_SECTION, LESSONS_PER_SECTION, LessonResult, MAX_STARS,
     Milestone, NextStep, SECTION_STARS, SECTION_STEP, SECTIONS, SectionStatus, Slot, TOTAL_STARS,
@@ -401,6 +402,9 @@ impl App {
             }
             summary = summary.push(text(lines.rollover).size(13).style(style::muted));
         }
+        if let Some(line) = slow_pairs_line(tr, &outcome.slow_pairs) {
+            summary = summary.push(text(line).size(13).style(style::muted));
+        }
         summary = summary.push(text(tr.tr(hint)).size(13).style(style::muted));
         let weak = tutor.weak_keys();
         if !weak.is_empty() {
@@ -644,4 +648,22 @@ impl App {
         )
         .into()
     }
+}
+
+/// Línea del resultado con los pares de letras más lentos y sus tiempos. `None` si no hay.
+fn slow_pairs_line(tr: &klavaro_i18n::Translator, pairs: &[WeakPair]) -> Option<String> {
+    let unit = tr.tr("progress-ms");
+    let pairs: Vec<String> = pairs
+        .iter()
+        .filter_map(|w| {
+            let ms = w.median?.as_secs_f64() * 1000.0;
+            Some(format!("{}{} {ms:.0} {unit}", w.from, w.to))
+        })
+        .collect();
+    (!pairs.is_empty()).then(|| {
+        tr.tr_args(
+            "sections-slow-transitions",
+            &[("pairs", &pairs.join(" · "))],
+        )
+    })
 }

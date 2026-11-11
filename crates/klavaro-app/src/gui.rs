@@ -24,10 +24,11 @@ use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, T
 use klavaro_core::Module;
 use klavaro_core::generators::basic::MAX_LESSONS;
 use klavaro_core::keyboard::FingerMap;
-use klavaro_core::pairs::PairTracker;
+use klavaro_core::pairs::{PairTracker, WeakPair};
 use klavaro_core::progression::{self, LESSONS_PER_SECTION, Ladder, Milestone, NextStep, Slot};
 use klavaro_core::ranking::RankingEntry;
 use klavaro_core::tracker::KeyTracker;
+use klavaro_core::transitions::TransitionKind;
 use klavaro_data::catalog::CatalogEntry;
 use klavaro_i18n::Translator;
 use klavaro_store::LessonBest;
@@ -1121,6 +1122,8 @@ impl App {
         };
         let chart = if metric == Metric::Stars {
             Ok(Chart::new(metric, Vec::new(), None))
+        } else if metric.per_pair() {
+            Ok(Chart::pairs(metric, &self.pairs))
         } else if metric.per_key() {
             Ok(Chart::per_key(metric, &self.tracker))
         } else {
@@ -1786,6 +1789,44 @@ impl App {
         filters
     }
 
+    /// Qué muestra el gráfico: cuántos puntos y de cuándo, o por qué está vacío.
+    fn chart_summary(&self, v: &ProgressView) -> String {
+        let (tr, chart) = (&self.tr, &v.chart);
+        let slow = v.metric.per_pair();
+        match (chart.points.first(), chart.points.last()) {
+            (Some(_), _) if slow => tr.tr_args(
+                "progress-pairs",
+                &[
+                    ("count", &chart.points.len().to_string()),
+                    ("keyboard", &self.keyboard),
+                ],
+            ),
+            // Sin tiempo habitual todavía no se puede saber qué pares son lentos.
+            (None, _) if slow && chart.goal.is_none() => tr.tr("progress-pairs-waiting"),
+            (None, _) if slow => tr.tr("progress-pairs-none"),
+            (Some(_), _) if v.metric.per_key() => tr.tr_args(
+                "progress-keys",
+                &[
+                    ("count", &chart.points.len().to_string()),
+                    ("keyboard", &self.keyboard),
+                ],
+            ),
+            (Some(first), Some(last)) => tr.tr_args(
+                if chart.points.len() == 1 {
+                    "progress-session-one"
+                } else {
+                    "progress-sessions"
+                },
+                &[
+                    ("count", &chart.points.len().to_string()),
+                    ("first", &format_date_time(first.at)),
+                    ("last", &format_date_time(last.at)),
+                ],
+            ),
+            _ => tr.tr("progress-empty"),
+        }
+    }
+
     fn view_progress<'a>(&'a self, v: &'a ProgressView) -> Element<'a, Message> {
         let tr = &self.tr;
         let choice = |label: String, active: bool, msg: Message| {
@@ -1819,39 +1860,27 @@ impl App {
         let filters = self.chart_filters(v);
 
         let chart = &v.chart;
-        let summary = match (chart.points.first(), chart.points.last()) {
-            (Some(_), _) if v.metric.per_key() => tr.tr_args(
-                "progress-keys",
-                &[
-                    ("count", &chart.points.len().to_string()),
-                    ("keyboard", &self.keyboard),
-                ],
-            ),
-            (Some(first), Some(last)) => tr.tr_args(
-                if chart.points.len() == 1 {
-                    "progress-session-one"
-                } else {
-                    "progress-sessions"
-                },
-                &[
-                    ("count", &chart.points.len().to_string()),
-                    ("first", &format_date_time(first.at)),
-                    ("last", &format_date_time(last.at)),
-                ],
-            ),
-            _ => tr.tr("progress-empty"),
-        };
+        let slow = v.metric.per_pair();
+        let summary = self.chart_summary(v);
         let mut info = row![text(summary).size(13).style(style::muted)].spacing(16);
         if let Some(goal) = chart.goal {
             info = info.push(
-                text(tr.tr_args("progress-goal", &[("value", &format!("{goal:.0}"))]))
-                    .size(13)
-                    .style(style::muted),
+                text(tr.tr_args(
+                    if slow {
+                        "progress-typical"
+                    } else {
+                        "progress-goal"
+                    },
+                    &[("value", &format!("{goal:.0}"))],
+                ))
+                .size(13)
+                .style(style::muted),
             );
         }
         let plot = Plot {
             chart,
             unit: metric_unit(tr, v.metric),
+            details: chart.pairs.iter().map(|w| pair_detail(tr, w)).collect(),
         };
 
         let content: Element<'a, Message> = if v.metric == Metric::Stars {
@@ -2218,7 +2247,13 @@ fn metric_label(tr: &Translator, m: Metric) -> String {
         Metric::Speed => tr.tr("progress-wpm-unit"),
         Metric::Score => "(0-10)".to_owned(),
         // «Touch times (s)» ya trae la unidad.
-        Metric::Errors | Metric::TouchTimes | Metric::Stars => return tr.tr(m.label_key()),
+        Metric::Errors
+        | Metric::TouchTimes
+        | Metric::Stars
+        | Metric::SlowTransitions
+        | Metric::FastTransitions => {
+            return tr.tr(m.label_key());
+        }
     };
     format!("{} {unit}", tr.tr(m.label_key()))
 }
@@ -2230,6 +2265,29 @@ fn metric_unit(tr: &Translator, m: Metric) -> String {
         Metric::Speed => format!(" {}", tr.tr("progress-wpm-unit").trim_matches(['(', ')'])),
         Metric::Score | Metric::Errors | Metric::Stars => String::new(),
         Metric::TouchTimes => " s".to_owned(),
+        Metric::SlowTransitions | Metric::FastTransitions => format!(" {}", tr.tr("progress-ms")),
+    }
+}
+
+/// Detalle de un par lento al señalar su barra: cuánto más tarda que lo habitual, con cuántas
+/// muestras se midió y con qué dedos se escribe.
+fn pair_detail(tr: &Translator, pair: &WeakPair) -> String {
+    let kind = match pair.kind {
+        TransitionKind::OtherHand => Some("transition-other-hand"),
+        TransitionKind::SameHand => Some("transition-same-hand"),
+        TransitionKind::SameFinger => Some("transition-same-finger"),
+        TransitionKind::Unknown => None,
+    };
+    let detail = tr.tr_args(
+        "progress-pair-detail",
+        &[
+            ("times", &format!("{:.1}", pair.excess.unwrap_or(1.0))),
+            ("samples", &pair.samples.to_string()),
+        ],
+    );
+    match kind {
+        Some(kind) => format!("{detail} · {}", tr.tr(kind)),
+        None => detail,
     }
 }
 

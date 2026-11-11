@@ -717,6 +717,7 @@ mod tests {
             source: None,
             transitions: None,
             previous_transitions: None,
+            slow_pairs: Vec::new(),
         }
     }
 

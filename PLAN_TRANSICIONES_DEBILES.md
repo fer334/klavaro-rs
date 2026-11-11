@@ -294,6 +294,31 @@ Hecha.
 - Sin datos suficientes, la línea no aparece y el gráfico lo explica.
 - Las demás métricas de Progreso se ven igual que antes.
 
+### Resultado
+
+Hecha. Falta verla con datos reales en la aplicación.
+
+- `PairTracker::slow(límite)` da los pares lentos, del más lento al menos lento (por exceso sobre
+  el tiempo habitual). Los pares que sólo se fallan no entran: la vista es de tiempos. Para la
+  vista no hace falta la frecuencia; ésa queda para elegir qué practicar (Fase 5).
+- **Resultado de la lección:** línea «Transiciones lentas: po 185 ms · er 157 ms…» con hasta 5
+  pares, debajo del rollover. Se calcula una vez al terminar la lección (`Outcome::slow_pairs`).
+- **Progreso:** «Transiciones lentas (ms)» en la Progresión, con hasta 10 barras, el par debajo
+  de cada una y la línea del tiempo habitual. Al señalar una barra: «po · 185 ms · 1,6× su tiempo
+  habitual · 6 muestras · misma mano». No muestra los errores, porque los pares de esta vista
+  están por lentos.
+- La altura de la barra es la mediana real y la línea es el tiempo habitual ajustado por tipo de
+  transición, así que una barra de «mismo dedo» puede pasar la línea sin ser lenta. Por eso el
+  detalle dice cuántas veces el tiempo habitual tarda el par ya ajustado.
+- Sin tiempo habitual el gráfico dice que faltan transiciones medidas; con tiempo habitual y
+  ningún par lento, dice que ninguna transición es lenta.
+- El gráfico de pares usa 10 posiciones en lugar de las 50 de los demás, para que las barras y
+  los pares de dos letras se lean.
+
+- **Transiciones rápidas** (pedido al probar): otro gráfico en la Progresión, «Transiciones
+  rápidas (ms)», con los 10 pares más rápidos comparados con el tiempo habitual, del más rápido
+  al menos rápido (`PairTracker::fastest`). Mismo dibujo, en verde.
+
 ## Fase 4: mirar los datos y decidir
 
 Con la vista hecha, se usa la app dos semanas antes de construir la práctica.
