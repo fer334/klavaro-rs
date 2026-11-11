@@ -18,7 +18,7 @@ use crate::config::module_key;
 use crate::{Result, io_error};
 
 /// Versión del esquema (`PRAGMA user_version`).
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS sessions (
@@ -94,6 +94,15 @@ CREATE TABLE IF NOT EXISTS key_times (
     ch       TEXT    NOT NULL,
     samples  TEXT    NOT NULL,
     PRIMARY KEY (keyboard, pos)
+);
+CREATE TABLE IF NOT EXISTS pair_times (
+    keyboard TEXT    NOT NULL,
+    pair     TEXT    NOT NULL,
+    kind     TEXT    NOT NULL,
+    samples  TEXT    NOT NULL,
+    typed    INTEGER NOT NULL,
+    wrong    INTEGER NOT NULL,
+    PRIMARY KEY (keyboard, pair)
 );
 ";
 
@@ -965,6 +974,34 @@ mod tests {
             h.previous_transitions("es", slot(20, 2)).expect("leer"),
             None
         );
+    }
+
+    #[test]
+    fn upgrades_a_version_4_database_adding_the_pair_table() {
+        let conn = Connection::open_in_memory().expect("base");
+        conn.execute_batch(
+            "CREATE TABLE key_times (
+                 keyboard TEXT NOT NULL, pos INTEGER NOT NULL, ch TEXT NOT NULL,
+                 samples TEXT NOT NULL, PRIMARY KEY (keyboard, pos));
+             INSERT INTO key_times (keyboard, pos, ch, samples)
+                 VALUES ('qwerty_us', 0, 'k', '0.25 0.5');
+             PRAGMA user_version = 4;",
+        )
+        .expect("esquema 4");
+        let mut h = History::init(conn).expect("actualizar");
+        assert_eq!(h.tracker("qwerty_us").expect("leer").times().len(), 1);
+        assert!(h.pairs("qwerty_us").expect("leer").is_empty());
+        let mut pairs = klavaro_core::pairs::PairTracker::new();
+        pairs.record_error(
+            't',
+            'h',
+            klavaro_core::transitions::TransitionKind::OtherHand,
+        );
+        h.save_pairs("qwerty_us", &pairs).expect("guardar");
+        // Abrir de nuevo no falla ni pierde los pares.
+        let h = History::init(h.conn).expect("reabrir");
+        assert_eq!(h.pairs("qwerty_us").expect("leer"), pairs);
+        assert_eq!(h.tracker("qwerty_us").expect("leer").times().len(), 1);
     }
 
     #[test]

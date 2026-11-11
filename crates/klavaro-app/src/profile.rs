@@ -8,6 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use klavaro_core::Module;
+use klavaro_core::pairs::PairTracker;
 use klavaro_core::progression::{MAX_STARS, Milestone, NextStep, Slot};
 use klavaro_core::ranking::{MIN_CHARS, Ranking, RankingEntry, Rejection, text_resembles_language};
 use klavaro_core::tracker::KeyTracker;
@@ -250,6 +251,25 @@ impl Profile {
     ) -> Result<(), StoreError> {
         match self.history.as_mut() {
             Some(h) => h.save_tracker(keyboard, tracker),
+            None => Ok(()),
+        }
+    }
+
+    /// Rastreo por par de letras guardado de un teclado (vacío si no hay historial).
+    pub(crate) fn pairs(&self, keyboard: &str) -> Result<PairTracker, StoreError> {
+        self.history
+            .as_ref()
+            .map_or_else(|| Ok(PairTracker::new()), |h| h.pairs(keyboard))
+    }
+
+    /// Guarda el rastreo por par de letras de un teclado.
+    pub(crate) fn save_pairs(
+        &mut self,
+        keyboard: &str,
+        pairs: &PairTracker,
+    ) -> Result<(), StoreError> {
+        match self.history.as_mut() {
+            Some(h) => h.save_pairs(keyboard, pairs),
             None => Ok(()),
         }
     }

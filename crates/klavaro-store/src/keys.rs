@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Rastreo de errores y tiempos por tecla de cada teclado (tablas `key_errors` y `key_times`),
-//! el equivalente de `accuracy.log_<teclado>` y `proficiency.log_<teclado>` del original.
+//! el equivalente de `accuracy.log_<teclado>` y `proficiency.log_<teclado>` del original, y
+//! rastreo por par de letras (tabla `pair_times`, ver `PLAN_TRANSICIONES_DEBILES.md`).
 //!
 //! A diferencia del original, que sólo guarda el promedio de cada tecla, se guardan los
 //! últimos tiempos tal cual.
 
+use klavaro_core::pairs::{PairEntry, PairTracker};
 use klavaro_core::tracker::{ErrorEntry, KeyTracker, TimeEntry};
+use klavaro_core::transitions::TransitionKind;
 use rusqlite::params;
 
 use crate::Result;
@@ -92,11 +95,103 @@ impl History {
         tx.commit()?;
         Ok(())
     }
+
+    /// Rastreo por par de letras guardado de un teclado (vacío si no hay).
+    ///
+    /// # Errors
+    ///
+    /// Si falla la lectura.
+    pub fn pairs(&self, keyboard: &str) -> Result<PairTracker> {
+        let mut stmt = self.conn.prepare(
+            "SELECT pair, kind, samples, typed, wrong FROM pair_times
+             WHERE keyboard = ?1 ORDER BY pair",
+        )?;
+        let entries = stmt
+            .query_map([keyboard], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, u32>(3)?,
+                    row.get::<_, u32>(4)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?
+            .into_iter()
+            .filter_map(|(pair, kind, samples, typed, wrong)| {
+                let mut letters = pair.chars();
+                let (from, to) = (letters.next()?, letters.next()?);
+                let samples = samples
+                    .split_whitespace()
+                    .filter_map(|v| v.parse().ok())
+                    .collect();
+                Some(PairEntry::new(
+                    from,
+                    to,
+                    TransitionKind::from_code(&kind),
+                    samples,
+                    typed,
+                    wrong,
+                ))
+            });
+        Ok(PairTracker::from_entries(entries))
+    }
+
+    /// Reemplaza el rastreo por par guardado de un teclado.
+    ///
+    /// # Errors
+    ///
+    /// Si falla la escritura (no se cambia nada).
+    pub fn save_pairs(&mut self, keyboard: &str, pairs: &PairTracker) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM pair_times WHERE keyboard = ?1", [keyboard])?;
+        for e in pairs.entries() {
+            let samples: Vec<String> = e.samples().iter().map(f64::to_string).collect();
+            tx.execute(
+                "INSERT INTO pair_times (keyboard, pair, kind, samples, typed, wrong)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    keyboard,
+                    String::from_iter([e.from, e.to]),
+                    e.kind.code(),
+                    samples.join(" "),
+                    e.typed,
+                    e.wrong
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
+
+    #[test]
+    fn pairs_round_trip_per_keyboard() {
+        let mut h = History::in_memory().expect("base");
+        let mut pairs = PairTracker::new();
+        for iki in [140, 155, 1200] {
+            let iki = Some(Duration::from_millis(iki));
+            pairs.record('e', 'r', TransitionKind::SameHand, iki);
+        }
+        pairs.record_error('t', 'h', TransitionKind::OtherHand);
+        pairs.record('ñ', 'o', TransitionKind::SameFinger, None);
+        h.save_pairs("qwerty_es", &pairs).expect("guardar");
+        assert_eq!(h.pairs("qwerty_es").expect("leer"), pairs);
+        assert_eq!(h.pairs("dvorak").expect("leer"), PairTracker::new());
+
+        // Guardar de nuevo reemplaza, no duplica.
+        h.save_pairs("qwerty_es", &pairs).expect("guardar otra vez");
+        assert_eq!(h.pairs("qwerty_es").expect("leer"), pairs);
+        h.save_pairs("qwerty_es", &PairTracker::new())
+            .expect("vaciar");
+        assert!(h.pairs("qwerty_es").expect("leer").is_empty());
+    }
 
     #[test]
     fn tracker_round_trip_per_keyboard() {

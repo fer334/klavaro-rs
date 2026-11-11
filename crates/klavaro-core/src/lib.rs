@@ -20,6 +20,7 @@ pub mod generators;
 pub mod goals;
 pub mod keyboard;
 pub mod metrics;
+pub mod pairs;
 pub mod progression;
 pub mod ranking;
 pub mod rng;

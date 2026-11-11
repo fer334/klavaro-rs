@@ -24,6 +24,7 @@ use iced::{Alignment, Color, Element, Event, Font, Length, Subscription, Task, T
 use klavaro_core::Module;
 use klavaro_core::generators::basic::MAX_LESSONS;
 use klavaro_core::keyboard::FingerMap;
+use klavaro_core::pairs::PairTracker;
 use klavaro_core::progression::{self, LESSONS_PER_SECTION, Ladder, Milestone, NextStep, Slot};
 use klavaro_core::ranking::RankingEntry;
 use klavaro_core::tracker::KeyTracker;
@@ -149,6 +150,8 @@ struct App {
     /// Errores y tiempos por tecla del teclado elegido. Durante un ejercicio, el tutor tiene
     /// la copia al día ([`App::leave_tutor`] la recupera).
     tracker: KeyTracker,
+    /// Tiempos y errores por par de letras del teclado elegido.
+    pairs: PairTracker,
     audio: Audio,
     /// Posición del último dictado (ejercicio y cursor), para no repetirlo.
     dictated: Option<(u32, usize)>,
@@ -296,6 +299,7 @@ impl App {
             screen: Screen::Menu,
             profile,
             tracker: KeyTracker::new(),
+            pairs: PairTracker::new(),
             audio: Audio::new(Engine::detect()),
             dictated: None,
             fingers: assets::fingers().ok(),
@@ -342,11 +346,15 @@ impl App {
         }
     }
 
-    /// Lee el rastreo por tecla del teclado elegido.
+    /// Lee el rastreo por tecla y por par de letras del teclado elegido.
     fn load_tracker(&mut self) {
         self.tracker = self.profile.tracker(&self.keyboard).unwrap_or_else(|e| {
             self.error = Some(e.to_string());
             KeyTracker::new()
+        });
+        self.pairs = self.profile.pairs(&self.keyboard).unwrap_or_else(|e| {
+            self.error = Some(e.to_string());
+            PairTracker::new()
         });
     }
 
@@ -522,6 +530,8 @@ impl App {
     /// Sale de la pantalla del tutor (si está en ella): recupera y guarda el rastreo.
     fn leave_tutor(&mut self) {
         if let Screen::Tutor(t) = std::mem::replace(&mut self.screen, Screen::Menu) {
+            // Los pares ya se guardaron al terminar cada lección; acá sólo se recuperan.
+            self.pairs = t.pairs().clone();
             self.tracker = t.into_tracker();
             if let Err(e) = self.profile.save_tracker(&self.keyboard, &self.tracker) {
                 self.error = Some(e.to_string());
@@ -572,6 +582,9 @@ impl App {
             self.error = Some(e.to_string());
         }
         let progression = t.spec().module == Module::Progression;
+        if progression && let Err(e) = self.profile.save_pairs(&self.keyboard, t.pairs()) {
+            self.error = Some(e.to_string());
+        }
         if let Screen::Tutor(t) = &mut self.screen {
             t.set_previous_transitions(previous);
         }
@@ -1045,7 +1058,8 @@ impl App {
             config.goals.clone(),
             seed,
             self.tracker.clone(),
-        )?;
+        )?
+        .with_pairs(self.pairs.clone());
         self.screen = Screen::Tutor(Box::new(tutor));
         self.error = None;
         self.note = None;

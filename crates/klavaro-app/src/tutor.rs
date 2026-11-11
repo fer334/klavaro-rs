@@ -15,6 +15,7 @@ use klavaro_core::goals::{Comment, CommentContext, GoalCheck, Goals};
 use klavaro_core::keyboard::FingerMap;
 use klavaro_core::keyboard::KeyboardLayout;
 use klavaro_core::metrics::Stats;
+use klavaro_core::pairs::PairTracker;
 use klavaro_core::progression::LessonResult;
 use klavaro_core::session::{CharState, Feedback, Key, Session};
 use klavaro_core::tracker::{KeyTracker, SpecialSession};
@@ -200,11 +201,41 @@ pub(crate) struct Tutor {
     flashes: Vec<(usize, Duration)>,
     /// Transiciones fluidas seguidas hasta la última letra.
     streak: u32,
+    /// Tiempos y errores por par de letras del teclado actual. Sólo los carga la Progresión.
+    pairs: PairTracker,
 }
 
 /// Variable de entorno que, si está definida, imprime los tiempos de cada letra al terminar
 /// una lección de la Progresión.
 const KEYLOG_ENV: &str = "KLAVARO_KEYLOG";
+
+/// Cuántos pares lentos lista el registro de depuración.
+const KEYLOG_PAIRS: usize = 10;
+
+/// Los pares de letras más lentos del rastreo, para calibrar (ver
+/// `PLAN_TRANSICIONES_DEBILES.md`).
+fn slow_pairs_report(pairs: &PairTracker) -> String {
+    use std::fmt::Write as _;
+    let ms = |d: Option<Duration>| d.map_or(0.0, |d| d.as_secs_f64() * 1000.0);
+    let mut out = String::from(
+        "pares más lentos (acumulado):\npar\tmediana\tajustada\ttipo\tmuestras\terrores\n",
+    );
+    for e in pairs.slowest(KEYLOG_PAIRS) {
+        let _ = writeln!(
+            out,
+            "{}{}\t{:.0}\t{:.0}\t{}\t{}\t{} de {}",
+            e.from,
+            e.to,
+            ms(e.median()),
+            ms(e.adjusted()),
+            e.kind.code(),
+            e.samples().len(),
+            e.wrong,
+            e.typed
+        );
+    }
+    out
+}
 
 /// Registro de tiempos para un ejercicio nuevo: sólo en la Progresión.
 fn stroke_log(module: Module, session: &Session) -> Option<StrokeLog> {
@@ -236,6 +267,7 @@ impl Tutor {
             fingers,
             flashes: Vec::new(),
             streak: 0,
+            pairs: PairTracker::new(),
             spec,
             layout,
             goals,
@@ -250,6 +282,17 @@ impl Tutor {
             mistakes: BTreeMap::new(),
             typo_open: false,
         })
+    }
+
+    /// Parte del rastreo por par de letras guardado, en lugar de uno vacío.
+    pub(crate) fn with_pairs(mut self, pairs: PairTracker) -> Self {
+        self.pairs = pairs;
+        self
+    }
+
+    /// Rastreo por par de letras.
+    pub(crate) fn pairs(&self) -> &PairTracker {
+        &self.pairs
     }
 
     /// Rastreo por tecla.
@@ -499,25 +542,32 @@ impl Tutor {
         (self.outcome.is_none() && self.streak >= STREAK_MIN).then_some(self.streak)
     }
 
-    /// Analiza las transiciones del ejercicio recién terminado.
-    fn analyze_transitions(&self) -> Option<transitions::Analysis> {
+    /// Lo que se sabe de cómo se escribió cada letra (sólo en la Progresión).
+    fn letters(&self) -> Option<Vec<transitions::Letter>> {
         let log = self.strokes.as_ref()?;
-        let slot = self.spec.slot?;
-        let letters = log.letters(
+        Some(log.letters(
             self.session.target(),
             self.session.states(),
             &self.layout,
             self.fingers.as_ref(),
-        );
-        Some(transitions::analyze(&letters, slot.target_wpm()))
+        ))
     }
 
-    /// Agrega las transiciones al resultado. Se hace después de anotar la última letra, que
-    /// la sesión evalúa antes de que se registren sus tiempos.
+    /// Analiza las transiciones del ejercicio recién terminado.
+    fn analyze_transitions(&self) -> Option<transitions::Analysis> {
+        let slot = self.spec.slot?;
+        Some(transitions::analyze(&self.letters()?, slot.target_wpm()))
+    }
+
+    /// Agrega las transiciones al resultado y carga el rastreo por par. Se hace después de
+    /// anotar la última letra, que la sesión evalúa antes de que se registren sus tiempos.
     fn attach_transitions(&mut self) {
         let summary = self.analyze_transitions().map(|a| a.summary);
         if let Some(outcome) = &mut self.outcome {
             outcome.transitions = summary;
+        }
+        if let Some(letters) = self.letters() {
+            self.pairs.record_exercise(self.session.target(), &letters);
         }
     }
 
@@ -548,6 +598,7 @@ impl Tutor {
         if let Some(log) = &self.strokes {
             let (target, states) = (self.session.target(), self.session.states());
             eprintln!("{}", log.dump(target, states, analysis.as_ref()));
+            eprintln!("{}", slow_pairs_report(&self.pairs));
         }
     }
 
@@ -1109,6 +1160,58 @@ mod tests {
         let mut plain = lesson_tutor(20, 30);
         type_lesson(&mut plain, 100);
         assert_eq!(plain.outcome().map(|o| o.transitions), Some(None));
+    }
+
+    #[test]
+    fn a_finished_lesson_loads_the_pairs_of_letters() {
+        use klavaro_core::pairs::pair_key;
+        use klavaro_core::transitions::TransitionKind;
+
+        let mut saved = PairTracker::new();
+        saved.record_error('q', 'j', TransitionKind::Unknown);
+        let mut t = lesson_tutor(20, 30).with_pairs(saved);
+        type_lesson_with_keys(&mut t, 100);
+        let text: Vec<char> = t.text().chars().collect();
+        let expected = text
+            .windows(2)
+            .filter(|w| pair_key(w[0], w[1]).is_some())
+            .count();
+        assert!(expected > 0);
+        // Lo guardado antes sigue ahí, y cada par dentro de una palabra sumó una vez.
+        assert_eq!(t.pairs().get('q', 'j').map(|e| e.wrong), Some(1));
+        let typed: u32 = t.pairs().entries().map(|e| e.typed).sum();
+        assert_eq!(typed as usize, expected + 1);
+        // Todas las letras se escribieron bien y cada 100 ms.
+        let samples: Vec<f64> = t
+            .pairs()
+            .entries()
+            .flat_map(|e| e.samples().to_vec())
+            .collect();
+        assert_eq!(samples.len(), expected);
+        assert!(
+            samples.iter().all(|s| (s - 0.1).abs() < 1e-9),
+            "{samples:?}"
+        );
+        assert!(t.pairs().entries().all(|e| e.from != ' ' && e.to != ' '));
+        assert!(slow_pairs_report(t.pairs()).starts_with("pares más lentos"));
+
+        // Sin los datos de cada tecla (`handle` a secas) no se carga nada.
+        let mut plain = lesson_tutor(20, 30);
+        type_lesson(&mut plain, 100);
+        assert!(plain.pairs().is_empty());
+    }
+
+    #[test]
+    fn other_modules_do_not_load_pairs() {
+        let mut t = tutor(Module::Velocity);
+        let text: Vec<char> = t.text().chars().collect();
+        for (i, &c) in text.iter().enumerate() {
+            let i = i as u64;
+            t.handle_stroke(Input::Char(c), stroke(100 * i, i, false))
+                .expect("tecla");
+        }
+        assert!(t.outcome().is_some());
+        assert!(t.pairs().is_empty());
     }
 
     #[test]

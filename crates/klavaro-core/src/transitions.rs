@@ -87,6 +87,26 @@ impl TransitionKind {
         }
     }
 
+    /// Nombre estable del tipo, para guardarlo.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::OtherHand => "other_hand",
+            Self::SameHand => "same_hand",
+            Self::SameFinger => "same_finger",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Tipo guardado con [`TransitionKind::code`]. Un nombre desconocido es [`Self::Unknown`].
+    pub fn from_code(code: &str) -> Self {
+        match code {
+            "other_hand" => Self::OtherHand,
+            "same_hand" => Self::SameHand,
+            "same_finger" => Self::SameFinger,
+            _ => Self::Unknown,
+        }
+    }
+
     /// Factor que ajusta el umbral de IKI a lo que permite la mano.
     pub fn factor(self) -> f64 {
         match self {
